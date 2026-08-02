@@ -24,20 +24,48 @@ class DashboardAdminController extends Controller
             return $this->analytics();
         }
 
-        // Bulan yang dipilih (format Y-m); default = bulan berjalan.
+        /**
+         * PERIODE DASHBOARD — harian (default) atau bulanan.
+         *
+         * range=day  -> dihitung untuk SATU tanggal (parameter `date`, format Y-m-d)
+         * range=month-> dihitung untuk satu bulan penuh (parameter `month`, format Y-m)
+         *
+         * Default harian karena pemilik toko memantau hari berjalan, bukan rekap bulan.
+         * Nama $monthStart/$monthEnd dipertahankan agar seluruh kueri di bawah tidak
+         * perlu diubah; isinya kini "awal & akhir periode terpilih".
+         */
+        $range = $request->input('range') === 'month' ? 'month' : 'day';
+
         $selectedMonth = (string) $request->input('month', Carbon::now()->format('Y-m'));
         try {
-            $monthStart = Carbon::createFromFormat('Y-m', $selectedMonth)->startOfMonth();
+            $monthAnchor = Carbon::createFromFormat('Y-m', $selectedMonth)->startOfMonth();
         } catch (\Throwable $e) {
-            $monthStart = Carbon::now()->startOfMonth();
+            $monthAnchor = Carbon::now()->startOfMonth();
         }
-        $selectedMonth = $monthStart->format('Y-m');
-        $monthEnd = $monthStart->copy()->endOfMonth();
+        $selectedMonth = $monthAnchor->format('Y-m');
+
+        $selectedDate = (string) $request->input('date', Carbon::now()->format('Y-m-d'));
+        try {
+            $dayAnchor = Carbon::createFromFormat('Y-m-d', $selectedDate)->startOfDay();
+        } catch (\Throwable $e) {
+            $dayAnchor = Carbon::now()->startOfDay();
+        }
+        $selectedDate = $dayAnchor->format('Y-m-d');
+
+        if ($range === 'month') {
+            $monthStart = $monthAnchor->copy();
+            $monthEnd   = $monthAnchor->copy()->endOfMonth();
+            $periodLabel = $monthAnchor->locale('id')->translatedFormat('F Y');
+        } else {
+            $monthStart = $dayAnchor->copy();
+            $monthEnd   = $dayAnchor->copy()->endOfDay();
+            $periodLabel = $dayAnchor->locale('id')->translatedFormat('l, d F Y');
+        }
 
         // Pilihan bulan untuk filter (12 bulan terakhir).
         $monthOptions = [];
         for ($c = Carbon::now()->startOfMonth(), $i = 0; $i < 12; $i++, $c->subMonth()) {
-            $monthOptions[] = ['value' => $c->format('Y-m'), 'label' => $c->translatedFormat('F Y')];
+            $monthOptions[] = ['value' => $c->format('Y-m'), 'label' => $c->locale('id')->translatedFormat('F Y')];
         }
 
         // 1. Menu Tidak Tersedia / Habis (Real-time)
@@ -75,19 +103,50 @@ class DashboardAdminController extends Controller
         $salesSeries = [];
         $targetSeries = [];
 
-        // Sampai hari ini bila bulan berjalan; sampai akhir bulan bila bulan lampau.
-        $chartEnd = $monthEnd->lt(Carbon::now()) ? $monthEnd->copy() : Carbon::now();
-        for ($date = $monthStart->copy(); $date->lte($chartEnd); $date->addDay()) {
-            $dateString = $date->format('Y-m-d');
-            $dates[] = $date->format('d M'); 
-            $salesSeries[] = (int) $actualSales->get($dateString, 0);
-            $targetSeries[] = (int) $targets->get($dateString, 0);
+        if ($range === 'day') {
+            // Mode HARIAN: pecah per JAM. Satu batang untuk satu hari tidak berguna;
+            // per jam justru memperlihatkan jam ramai — informasi yang dipakai untuk
+            // mengatur stok & jadwal karyawan.
+            $perJam = Order::whereBetween('created_at', [$monthStart, $monthEnd])
+                ->where('payment_status', 'paid')
+                ->whereNull('voided_at')
+                ->select(DB::raw('EXTRACT(HOUR FROM created_at) as jam'), DB::raw('SUM(grand_total) as total'))
+                ->groupBy(DB::raw('EXTRACT(HOUR FROM created_at)'))
+                ->pluck('total', 'jam');
+
+            // Rentang jam MENGIKUTI data, bukan dipatok 08:00-22:00 — toko yang buka
+            // sampai lewat tengah malam kalau dipatok akan kehilangan transaksinya.
+            $jamAda = collect($perJam->keys())->map(fn ($k) => (int) $k)->filter(fn ($k) => $k >= 0)->values();
+            $jamAwal = $jamAda->isNotEmpty() ? max(0, $jamAda->min() - 1) : 8;
+            $jamAkhir = $jamAda->isNotEmpty() ? min(23, $jamAda->max() + 1) : 22;
+
+            $targetHarian = (int) DailySalesTarget::where('date', $monthStart->format('Y-m-d'))->value('amount');
+            $jumlahJam = max(1, $jamAkhir - $jamAwal + 1);
+            $targetPerJam = $targetHarian > 0 ? (int) round($targetHarian / $jumlahJam) : 0;
+
+            for ($h = $jamAwal; $h <= $jamAkhir; $h++) {
+                $dates[] = sprintf('%02d:00', $h);
+                // Kunci hasil EXTRACT bisa berupa string/float tergantung driver.
+                $nilai = $perJam[$h] ?? $perJam[(string) $h] ?? $perJam[(float) $h] ?? 0;
+                $salesSeries[] = (int) $nilai;
+                $targetSeries[] = $targetPerJam;
+            }
+        } else {
+            // Mode BULANAN: per hari, sampai hari ini bila bulan berjalan.
+            $chartEnd = $monthEnd->lt(Carbon::now()) ? $monthEnd->copy() : Carbon::now();
+            for ($date = $monthStart->copy(); $date->lte($chartEnd); $date->addDay()) {
+                $dateString = $date->format('Y-m-d');
+                $dates[] = $date->format('d M');
+                $salesSeries[] = (int) $actualSales->get($dateString, 0);
+                $targetSeries[] = (int) $targets->get($dateString, 0);
+            }
         }
 
         $chartData = [
             'categories' => $dates,
             'sales'      => $salesSeries,
             'targets'    => $targetSeries,
+            'mode'       => $range,
         ];
 
         // 4. Quick Summary Widget - Real-time
@@ -187,7 +246,7 @@ class DashboardAdminController extends Controller
             'master_url'    => $onbIsLaundry ? route('laundry.services.index') : route('menus.index'),
         ];
 
-        return view('backend.dashboard.index', compact('unavailableMenus', 'topProducts', 'chartData', 'summary', 'selectedMonth', 'monthOptions', 'onboarding'));
+        return view('backend.dashboard.index', compact('unavailableMenus', 'topProducts', 'chartData', 'summary', 'selectedMonth', 'monthOptions', 'onboarding', 'range', 'selectedDate', 'periodLabel'));
     }
 
     /** Toggle tampil/sembunyi panduan "Setup Awal" di dashboard (preferensi per-tenant). */
@@ -319,13 +378,26 @@ class DashboardAdminController extends Controller
             || \App\Tenancy\Plan::tenantAllows(auth()->user()?->tenant, 'inventory_hpp');
         abort_unless($allowed, 403, 'Fitur HPP tidak tersedia pada paket Anda.');
 
+        // Menerima DUA format: 'Y-m' (periode bulanan) atau 'Y-m-d' (periode harian),
+        // mengikuti mode dashboard yang sedang dipilih.
         $month = (string) $request->input('month', Carbon::now()->format('Y-m'));
-        try {
-            $start = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
-        } catch (\Throwable $e) {
-            $start = Carbon::now()->startOfMonth();
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $month)) {
+            try {
+                $start = Carbon::createFromFormat('Y-m-d', $month)->startOfDay();
+            } catch (\Throwable $e) {
+                $start = Carbon::now()->startOfDay();
+            }
+            $end = $start->copy()->endOfDay();
+            $labelPeriode = $start->locale('id')->translatedFormat('l, d F Y');
+        } else {
+            try {
+                $start = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+            } catch (\Throwable $e) {
+                $start = Carbon::now()->startOfMonth();
+            }
+            $end = $start->copy()->endOfMonth();
+            $labelPeriode = $start->locale('id')->translatedFormat('F Y');
         }
-        $end = $start->copy()->endOfMonth();
 
         // Agregasi per menu dari pesanan LUNAS & tidak dibatalkan.
         $rows = OrderDetail::query()
@@ -374,7 +446,7 @@ class DashboardAdminController extends Controller
 
         return response()->json([
             'data'  => $data,
-            'month' => $start->translatedFormat('F Y'),
+            'month' => $labelPeriode,
             'total' => [
                 'revenue' => (float) $rows->sum('revenue'),
                 'hpp'     => (float) $rows->sum('hpp_total'),

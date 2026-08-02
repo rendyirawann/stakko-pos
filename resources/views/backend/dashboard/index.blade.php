@@ -3,7 +3,9 @@
 @section('content')
 
     @php
-        $selMonthLabel = \Carbon\Carbon::createFromFormat('Y-m', $selectedMonth ?? now()->format('Y-m'))->translatedFormat('F Y');
+        // Label periode: dipakai di judul kartu KPI & grafik. Mengikuti mode terpilih.
+        $selMonthLabel = $periodLabel
+            ?? \Carbon\Carbon::createFromFormat('Y-m', $selectedMonth ?? now()->format('Y-m'))->translatedFormat('F Y');
     @endphp
 
     <div id="kt_app_content" class="app-content flex-column-fluid mt-5">
@@ -32,18 +34,42 @@
                         <h2 class="text-white fw-bold mb-1">Halo, {{ auth()->user()->name }} 👋</h2>
                         <div class="text-white opacity-75 fs-6">
                             {{ optional($currentTenant)->name ?? 'Mooda' }} •
-                            {{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }}
+                            <span class="fw-bold">{{ $periodLabel ?? \Carbon\Carbon::now()->translatedFormat('l, d F Y') }}</span>
+                            <span class="badge badge-light-primary ms-1 fs-9">{{ ($range ?? 'day') === 'day' ? 'Harian' : 'Bulanan' }}</span>
                         </div>
                     </div>
                     <div class="d-flex gap-2 mt-3 mt-sm-0 align-items-center flex-wrap">
-                        <form method="GET" class="me-1">
-                            <select name="month" class="form-select form-select-sm fw-bold border-0 text-gray-800"
-                                onchange="this.form.submit()" style="min-width: 150px;" title="Pilih bulan analitik">
-                                @foreach (($monthOptions ?? []) as $opt)
-                                    <option value="{{ $opt['value'] }}" {{ ($selectedMonth ?? '') === $opt['value'] ? 'selected' : '' }}>
-                                        {{ $opt['label'] }}</option>
-                                @endforeach
-                            </select>
+                        {{-- FILTER PERIODE: harian (default) atau bulanan.
+                             Harian memakai pemilih TANGGAL, bulanan memakai pilihan bulan. --}}
+                        <form method="GET" class="me-1 d-flex align-items-center gap-2" id="form-periode">
+                            <div class="btn-group btn-group-sm" role="group" aria-label="Mode periode">
+                                <input type="radio" class="btn-check" name="range" id="range-day" value="day"
+                                    {{ ($range ?? 'day') === 'day' ? 'checked' : '' }} onchange="document.getElementById('form-periode').submit()">
+                                <label class="btn btn-sm btn-light fw-bold" for="range-day">Harian</label>
+
+                                <input type="radio" class="btn-check" name="range" id="range-month" value="month"
+                                    {{ ($range ?? 'day') === 'month' ? 'checked' : '' }} onchange="document.getElementById('form-periode').submit()">
+                                <label class="btn btn-sm btn-light fw-bold" for="range-month">Bulanan</label>
+                            </div>
+
+                            @if (($range ?? 'day') === 'day')
+                                <input type="date" name="date" value="{{ $selectedDate ?? now()->format('Y-m-d') }}"
+                                    max="{{ now()->format('Y-m-d') }}"
+                                    class="form-control form-control-sm fw-bold border-0 text-gray-800"
+                                    style="min-width:160px" title="Pilih tanggal"
+                                    onchange="document.getElementById('form-periode').submit()">
+                                {{-- bulan tetap dibawa agar tidak hilang saat berpindah mode --}}
+                                <input type="hidden" name="month" value="{{ $selectedMonth ?? now()->format('Y-m') }}">
+                            @else
+                                <select name="month" class="form-select form-select-sm fw-bold border-0 text-gray-800"
+                                    onchange="document.getElementById('form-periode').submit()" style="min-width: 150px;" title="Pilih bulan">
+                                    @foreach (($monthOptions ?? []) as $opt)
+                                        <option value="{{ $opt['value'] }}" {{ ($selectedMonth ?? '') === $opt['value'] ? 'selected' : '' }}>
+                                            {{ $opt['label'] }}</option>
+                                    @endforeach
+                                </select>
+                                <input type="hidden" name="date" value="{{ $selectedDate ?? now()->format('Y-m-d') }}">
+                            @endif
                         </form>
                         @if ($isSuperadminView ?? false)
                             <a href="{{ route('view-mode.switch', 'analytics') }}" class="btn btn-light fw-bold">
@@ -280,8 +306,10 @@
                     <div class="card shadow-sm h-100">
                         <div class="card-header pt-5 border-0">
                             <h3 class="card-title align-items-start flex-column">
-                                <span class="card-label fw-bold fs-3 mb-1">Performa Restoran Harian</span>
-                                <span class="text-muted fw-semibold fs-7">Omzet Aktual vs Target ({{ $selMonthLabel }})</span>
+                                <span class="card-label fw-bold fs-3 mb-1">{{ ($range ?? 'day') === 'day' ? 'Performa Jam per Jam' : 'Performa Restoran Harian' }}</span>
+                                <span class="text-muted fw-semibold fs-7">
+                                    {{ ($range ?? 'day') === 'day' ? 'Omzet per Jam' : 'Omzet Aktual vs Target' }} — {{ $selMonthLabel }}
+                                </span>
                             </h3>
                         </div>
                         <div class="card-body pt-2 pb-0 ps-0">
@@ -566,7 +594,11 @@
             }
 
             card.addEventListener('click', function () {
-                const month = $('select[name="month"]').val() || '{{ $selectedMonth ?? '' }}';
+                // Rincian HPP mengikuti periode dashboard: mode harian -> tanggal itu saja.
+                const isHarian = {{ ($range ?? 'day') === 'day' ? 'true' : 'false' }};
+                const month = isHarian
+                    ? '{{ $selectedDate ?? '' }}'
+                    : ($('select[name="month"]').val() || '{{ $selectedMonth ?? '' }}');
                 new bootstrap.Modal(document.getElementById('modal-hpp')).show();
 
                 const body = document.querySelector('#tbl-hpp tbody');
