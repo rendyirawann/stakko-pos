@@ -123,7 +123,7 @@ class DepositController extends Controller
 
         try {
             $topup = DB::transaction(function () use ($tenant, $amount, $points) {
-                $orderId = 'DSP-DEP-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
+                $orderId = 'STK-DEP-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
 
                 return DepositTopup::create([
                     'tenant_id'         => $tenant->id,
@@ -217,7 +217,7 @@ class DepositController extends Controller
             }
 
             $topup = DB::transaction(function () use ($tenant, $amount, $points) {
-                $orderId = 'DSP-DEP-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
+                $orderId = 'STK-DEP-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
                 return DepositTopup::create([
                     'tenant_id'         => $tenant->id,
                     'amount'            => $amount,
@@ -282,7 +282,7 @@ class DepositController extends Controller
             }
 
             $topup = DB::transaction(function () use ($tenant, $amount, $points) {
-                $orderId = 'DSP-DEP-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
+                $orderId = 'STK-DEP-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
                 return DepositTopup::create([
                     'tenant_id'         => $tenant->id,
                     'amount'            => $amount,

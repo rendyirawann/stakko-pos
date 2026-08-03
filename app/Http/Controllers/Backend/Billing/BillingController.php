@@ -120,7 +120,7 @@ class BillingController extends Controller
 
         try {
             $subscription = DB::transaction(function () use ($tenant, $planKey, $amount, $months, $cashbackPercent, $cashbackAmount) {
-                $orderId = 'DSP-SUB-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
+                $orderId = 'STK-SUB-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
 
                 return Subscription::create([
                     'tenant_id'         => $tenant->id,
@@ -223,7 +223,7 @@ class BillingController extends Controller
     /**
      * Webhook DOKU (diteruskan oleh doku-gateway). Gateway sudah memverifikasi Bearer JWT;
      * di sini kita cocokkan order + NOMINAL, lalu aktivasi (idempoten via lockForUpdate).
-     * Route publik, dikecualikan CSRF. Menangani langganan (DSP-SUB-) & deposit (DSP-DEP-).
+     * Route publik, dikecualikan CSRF. Menangani langganan (STK-SUB-) & deposit (STK-DEP-).
      */
     public function dokuWebhook(Request $request)
     {
@@ -281,7 +281,7 @@ class BillingController extends Controller
 
     /**
      * Webhook Tripay (route publik, dikecualikan CSRF). Verifikasi X-Callback-Signature
-     * (HMAC-SHA256 raw body dgn private key), lalu aktivasi langganan (DSP-SUB-) / deposit (DSP-DEP-).
+     * (HMAC-SHA256 raw body dgn private key), lalu aktivasi langganan (STK-SUB-) / deposit (STK-DEP-).
      * Idempoten via activateSubscription/activateTopup (lockForUpdate).
      */
     public function tripayWebhook(Request $request)
@@ -376,7 +376,7 @@ class BillingController extends Controller
             }
 
             $subscription = DB::transaction(function () use ($tenant, $planKey, $amount, $months, $cashbackPercent, $cashbackAmount) {
-                $orderId = 'DSP-SUB-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
+                $orderId = 'STK-SUB-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
                 return Subscription::create([
                     'tenant_id'         => $tenant->id,
                     'plan'              => $planKey,
@@ -444,7 +444,7 @@ class BillingController extends Controller
             }
 
             $subscription = DB::transaction(function () use ($tenant, $planKey, $amount, $months, $cashbackPercent, $cashbackAmount) {
-                $orderId = 'DSP-SUB-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
+                $orderId = 'STK-SUB-' . strtoupper(Str::random(6)) . '-' . $tenant->id . '-' . substr((string) Str::uuid(), 0, 8);
                 return Subscription::create([
                     'tenant_id'         => $tenant->id,
                     'plan'              => $planKey,
