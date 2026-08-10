@@ -371,7 +371,9 @@ Route::middleware(['auth', 'forbid-banned-user', 'maintenance', 'verified'])->gr
     // MODUL HPP · INVENTORY (FIFO/FEFO) · RESEP — F&B, KHUSUS paket Customize
     // Gate: permission data master + langganan aktif + vertical fnb + modul inventory_hpp
     // ====================================================
-    Route::middleware(['can:view_data_master', 'subscribed', 'vertical:fnb', 'plan:inventory_hpp'])->group(function () {
+    // 'addon:inventory_hpp' hanya menggigit bila modulnya datang dari add-on:
+    // tenant yang mendapatkannya dari paket tetap memakai aturan izin biasa.
+    Route::middleware(['can:view_data_master', 'subscribed', 'vertical:fnb', 'plan:inventory_hpp', 'addon:inventory_hpp'])->group(function () {
         // Bahan baku
         Route::get('/admin/fnb/ingredients', [\App\Http\Controllers\Backend\Fnb\IngredientController::class, 'index'])->name('fnb.ingredients.index');
         Route::post('/admin/fnb/ingredients', [\App\Http\Controllers\Backend\Fnb\IngredientController::class, 'store'])->name('fnb.ingredients.store');

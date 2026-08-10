@@ -31,6 +31,11 @@ class BillingController extends Controller
         }
 
         $plans = Plan::all();
+        // Add-on ikut ditampilkan di halaman ini karena bagi pemilik toko ia sama
+        // saja dengan langganan: ada masa berlaku, ada nominal yang dibayar.
+        $addons = \App\Models\TenantAddon::where('tenant_id', $tenant->id)
+            ->orderByDesc('created_at')->get();
+
         $history = Subscription::where('tenant_id', $tenant->id)
             ->orderByDesc('created_at')
             ->limit(20)
@@ -42,7 +47,7 @@ class BillingController extends Controller
         $dokuChannels = $driver === 'doku' ? DokuVaChannel::activeForCurrentEnv() : collect();
         $tripayChannels = $driver === 'tripay' ? \App\Models\TripayChannel::activeOrdered() : collect();
 
-        return view('backend.billing.index', compact('tenant', 'plans', 'history', 'clientKey', 'isProduction', 'driver', 'dokuChannels', 'tripayChannels'));
+        return view('backend.billing.index', compact('tenant', 'plans', 'history', 'addons', 'clientKey', 'isProduction', 'driver', 'dokuChannels', 'tripayChannels'));
     }
 
     /**

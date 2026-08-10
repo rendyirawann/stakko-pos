@@ -8,6 +8,11 @@
  *
  * Catatan: "Starter" di landing = akun DEPOSIT (pay-as-you-go), bukan plan bulanan di sini.
  *
+ * FITUR TAMBAHAN (ADD-ON): modul juga bisa dibeli satuan tanpa menaikkan paket,
+ * lewat tabel `tenant_addons` (lihat App\Tenancy\Addon dan perintah
+ * `php artisan tenant:addon`). Add-on boleh dibatasi ke peran tertentu — fiturnya
+ * tetap bekerja untuk seluruh transaksi toko, hanya LAYARNYA yang dibatasi.
+ *
  * "modules" = daftar fitur yang boleh diakses paket tsb. Modul yang dikenal:
  * kasir, kitchen, report_sales, promo, report_items, data_master, resources, expense,
  * tables (manajemen meja), hpp (menu HPP), report_finance (laporan keuangan),

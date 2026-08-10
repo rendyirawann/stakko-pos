@@ -238,6 +238,60 @@
                 @endforeach
             </div>
 
+            {{-- FITUR TAMBAHAN (ADD-ON) --}}
+            @if (($addons ?? collect())->count())
+                <div class="card card-flush mb-5">
+                    <div class="card-header pt-5">
+                        <div>
+                            <h3 class="card-title fw-bold text-gray-800 mb-0">Fitur Tambahan</h3>
+                            <span class="text-muted fs-8">
+                                Modul yang dibeli terpisah, di luar paket langganan.
+                            </span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-row-dashed align-middle gs-0 gy-3">
+                                <thead>
+                                    <tr class="fw-bold text-muted">
+                                        <th>Tanggal</th>
+                                        <th>Fitur</th>
+                                        <th>Rincian</th>
+                                        <th>Jumlah</th>
+                                        <th>Yang bisa membuka</th>
+                                        <th>Status</th>
+                                        <th>Berlaku s/d</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                @foreach ($addons as $ad)
+                                    @php
+                                        $warna = ['active' => 'success', 'pending' => 'warning',
+                                                  'expired' => 'secondary', 'cancelled' => 'secondary'][$ad->status] ?? 'secondary';
+                                    @endphp
+                                    <tr>
+                                        <td>{{ $ad->created_at->translatedFormat('d M Y') }}</td>
+                                        <td class="fw-bold text-gray-800">{{ $ad->label }}</td>
+                                        <td class="text-muted fs-8">
+                                            Rp {{ number_format($ad->price_per_month, 0, ',', '.') }}/bulan
+                                            × {{ $ad->months }} bulan
+                                            @if ($ad->note)<div>{{ $ad->note }}</div>@endif
+                                        </td>
+                                        <td class="fw-bold">Rp {{ number_format($ad->amount, 0, ',', '.') }}</td>
+                                        <td>
+                                            <span class="badge badge-light-primary text-capitalize">{{ $ad->labelPeran() }}</span>
+                                        </td>
+                                        <td><span class="badge badge-light-{{ $warna }} text-uppercase">{{ $ad->status }}</span></td>
+                                        <td>{{ $ad->ends_at ? $ad->ends_at->translatedFormat('d M Y') : '—' }}</td>
+                                    </tr>
+                                @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             {{-- RIWAYAT PEMBAYARAN --}}
             <div class="card card-flush">
                 <div class="card-header pt-5">

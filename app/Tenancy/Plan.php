@@ -164,6 +164,12 @@ class Plan
     /**
      * Apakah paket tenant mengizinkan modul tertentu.
      * Superadmin (tenant null) selalu boleh.
+     *
+     * Pemeriksaan ini TIDAK melihat peran pengguna: jawabannya soal "fitur ini
+     * hidup untuk toko itu atau tidak". Fitur yang hidup harus bekerja untuk
+     * seluruh transaksi — mis. stok tetap terpotong saat kasir menutup pesanan,
+     * walaupun layar HPP-nya cuma boleh dibuka pemilik. Pembatasan siapa yang
+     * boleh MEMBUKA layarnya ada di Addon::bolehLihat().
      */
     public static function tenantAllows(?Tenant $tenant, string $module): bool
     {
@@ -177,6 +183,11 @@ class Plan
         }
 
         // Modul dibaca dari paket sesuai VERTICAL tenant (F&B vs Laundry beda modul).
-        return in_array($module, self::modules($tenant->plan, $tenant->vertical), true);
+        if (in_array($module, self::modules($tenant->plan, $tenant->vertical), true)) {
+            return true;
+        }
+
+        // Jalur ketiga: modul dibeli terpisah sebagai add-on, tanpa menaikkan paket.
+        return \App\Tenancy\Addon::aktif($tenant, $module);
     }
 }

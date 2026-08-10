@@ -31,6 +31,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'tenant' => \App\Http\Middleware\IdentifyTenant::class,
             'subscribed' => \App\Http\Middleware\EnsureSubscribed::class,
             'plan' => \App\Http\Middleware\EnsurePlanFeature::class,
+            // Penjaga peran untuk modul yang dibeli terpisah (add-on).
+            'addon' => \App\Http\Middleware\EnsureAddonAccess::class,
             'maintenance' => \App\Http\Middleware\MaintenanceMode::class,
             // Multi-vertical (F&B / Laundry / Retail)
             'vertical' => \App\Http\Middleware\EnsureVertical::class,

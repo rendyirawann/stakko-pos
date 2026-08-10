@@ -371,11 +371,14 @@
                     @endcan
                     @endif {{-- /vertical: laundry vs F&B --}}
 
-                    {{-- HPP & INVENTORY: F&B, paket dgn modul inventory_hpp (Customize).
-                         Superadmin selalu melihatnya, termasuk saat mode kasir/POS. --}}
+    {{-- HPP & INVENTORY: F&B, dari paket (Customize) ATAU dibeli terpisah sebagai
+         add-on. Dipakai Addon::bolehLihat, bukan Plan::tenantAllows, karena
+         add-on boleh dibatasi ke peran tertentu — mis. hanya pemilik toko —
+         sementara fiturnya sendiri tetap bekerja untuk semua transaksi. --}}
                     @php
                         $sbHpp = auth()->user()->isSuperadmin()
-                            || \App\Tenancy\Plan::tenantAllows($currentTenant ?? null, 'inventory_hpp');
+                            || (\App\Tenancy\Plan::tenantAllows($currentTenant ?? null, 'inventory_hpp')
+                                && \App\Tenancy\Addon::bolehLihat($currentTenant ?? null, 'inventory_hpp'));
                     @endphp
                     @if (! $sbIsLaundry && $sbHpp)
                         @can('view_data_master')
