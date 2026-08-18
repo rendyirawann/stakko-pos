@@ -211,6 +211,18 @@ Route::middleware(['auth', 'forbid-banned-user', 'maintenance', 'verified'])->gr
     });
 
     // ====================================================
+    // MANAJEMEN SHIFT — Superadmin saja (koreksi modal & uang aktual)
+    // Tidak memakai 'can:view_tenants' saja: ini menyentuh angka uang, jadi
+    // dikunci tegas ke peran Superadmin.
+    // ====================================================
+    Route::middleware('role:Superadmin')->group(function () {
+        Route::get('/admin/superadmin/shifts', [\App\Http\Controllers\Backend\Superadmin\ShiftManagementController::class, 'index'])
+            ->name('superadmin.shifts.index');
+        Route::put('/admin/superadmin/shifts/{id}', [\App\Http\Controllers\Backend\Superadmin\ShiftManagementController::class, 'update'])
+            ->name('superadmin.shifts.update');
+    });
+
+    // ====================================================
     // MANAJEMEN TENANT — Superadmin (lintas tenant)
     // ====================================================
     Route::middleware('can:view_tenants')->group(function () {

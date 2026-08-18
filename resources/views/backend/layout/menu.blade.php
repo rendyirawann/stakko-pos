@@ -185,6 +185,14 @@
                 </a>
             </div>
 
+            {{-- MANAJEMEN SHIFT: koreksi modal & uang aktual (Superadmin only) --}}
+            <div class="menu-item menu-here-bg me-0 me-lg-2 {{ request()->routeIs('superadmin.shifts.*') ? 'here show ' : '' }}">
+                <a href="{{ route('superadmin.shifts.index') }}"
+                    class="menu-link px-4 {{ request()->routeIs('superadmin.shifts.*') ? 'active ' : '' }}">
+                    <span class="menu-title">Manajemen Shift</span>
+                </a>
+            </div>
+
             {{-- AKUN DEMO: Superadmin only --}}
             <div class="menu-item menu-here-bg me-0 me-lg-2 {{ request()->routeIs('demo-accounts.*') ? 'here show ' : '' }}">
                 <a href="{{ route('demo-accounts.index') }}"
