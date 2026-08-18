@@ -234,8 +234,18 @@ class ShiftController extends Controller
      * penutupan tak sengaja. Status kembali 'open', data penutupan direset;
      * selisih dihitung ulang saat ditutup lagi.
      */
-    public function reopenShift($id)
+    public function reopenShift(Request $request, $id)
     {
+        // Membuka kembali MENGHAPUS angka penutup (aktual, seharusnya, selisih) dan
+        // nanti diisi ulang saat ditutup lagi — praktis ini cara mengubah uang aktual.
+        // Karena itu alasannya wajib, sama seperti koreksi lewat Manajemen Shift:
+        // tanpa itu, beberapa bulan kemudian tidak ada yang tahu kenapa angkanya berbeda.
+        $data = $request->validate([
+            'alasan' => ['required', 'string', 'max:255'],
+        ], [
+            'alasan.required' => 'Alasan membuka kembali wajib diisi — tersimpan di Log Activity.',
+        ]);
+
         // Hanya owner/admin (punya 'shift.reopen') — untuk mengoreksi shift kasir yang
         // tak sengaja ditutup. Route juga dijaga middleware can:shift.reopen.
         // Tenant-scoped otomatis (owner/admin: tenant sendiri; Superadmin: lintas tenant).
@@ -253,6 +263,13 @@ class ShiftController extends Controller
                 . (optional($open->user)->name ?? 'pengguna lain') . '. Hanya 1 shift aktif per toko — tutup dulu shift itu.');
         }
 
+        $sebelum = [
+            'aktual'   => $shift->actual_cash === null ? null : (float) $shift->actual_cash,
+            'expected' => $shift->expected_cash === null ? null : (float) $shift->expected_cash,
+            'selisih'  => $shift->difference === null ? null : (float) $shift->difference,
+            'ditutup'  => $shift->end_time,
+        ];
+
         $shift->update([
             'status'        => 'open',
             'end_time'      => null,
@@ -266,6 +283,19 @@ class ShiftController extends Controller
             'difference'    => null,
         ]);
 
+        activity('shift-koreksi')
+            ->performedOn($shift)
+            ->causedBy(auth()->user())
+            ->withProperties([
+                'tindakan' => 'buka kembali shift',
+                'shift'    => $shift->id,
+                'tenant'   => $shift->tenant?->name,
+                'sebelum'  => $sebelum,
+                'sesudah'  => ['aktual' => null, 'expected' => null, 'selisih' => null],
+                'alasan'   => $data['alasan'],
+            ])
+            ->log('Shift dibuka kembali');
+
         return redirect()->route('shifts.index')->with('success', 'Kas/shift kasir dibuka kembali. Kasir dapat melanjutkan transaksi.');
     }
 
@@ -277,12 +307,36 @@ class ShiftController extends Controller
     {
         // Bersihkan pemisah ribuan sebelum validasi.
         $request->merge(['starting_cash' => preg_replace('/\D/', '', (string) $request->input('starting_cash'))]);
-        $request->validate(['starting_cash' => 'required|numeric|min:0']);
+        $data = $request->validate([
+            'starting_cash' => 'required|numeric|min:0',
+            'alasan'        => ['required', 'string', 'max:255'],
+        ], [
+            'alasan.required' => 'Alasan koreksi wajib diisi — tersimpan di Log Activity.',
+        ]);
 
         // Tenant-scoped otomatis; hanya shift yang masih terbuka yang boleh dikoreksi.
         $shift = Shift::where('status', 'open')->findOrFail($id);
-        $shift->update(['starting_cash' => $request->starting_cash]);
+        $modalLama = (float) $shift->starting_cash;
 
-        return redirect()->route('shifts.index')->with('success', 'Uang modal laci shift diperbarui.');
+        $shift->update(['starting_cash' => $data['starting_cash']]);
+
+        activity('shift-koreksi')
+            ->performedOn($shift)
+            ->causedBy(auth()->user())
+            ->withProperties([
+                'tindakan' => 'koreksi modal shift berjalan',
+                'shift'    => $shift->id,
+                'tenant'   => $shift->tenant?->name,
+                'sebelum'  => ['modal' => $modalLama],
+                'sesudah'  => ['modal' => (float) $shift->starting_cash],
+                'alasan'   => $data['alasan'],
+            ])
+            ->log('Koreksi modal shift berjalan');
+
+        return redirect()->route('shifts.index')->with('success', sprintf(
+            'Uang modal laci diperbarui: Rp %s → Rp %s.',
+            number_format($modalLama, 0, ',', '.'),
+            number_format((float) $shift->starting_cash, 0, ',', '.')
+        ));
     }
 }

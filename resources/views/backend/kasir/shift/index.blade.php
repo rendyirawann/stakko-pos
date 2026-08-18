@@ -104,8 +104,21 @@
                                 <div class="card-body p-8">
                                     <div class="d-flex flex-stack mb-5">
                                         <span class="text-gray-600 fs-5">Uang Modal Laci <span class="text-muted fs-8">(kembalian + pengeluaran)</span></span>
-                                        <span class="text-gray-800 fw-bold fs-4">Rp
-                                            {{ number_format($currentShift->starting_cash, 0, ',', '.') }}</span>
+                                        <span class="d-flex align-items-center gap-2">
+                                            <span class="text-gray-800 fw-bold fs-4">Rp
+                                                {{ number_format($currentShift->starting_cash, 0, ',', '.') }}</span>
+                                            @if ($canReopen)
+                                                {{-- Salah ketik modal saat buka shift dibetulkan di sini, tanpa perlu
+                                                     menutup lalu membuka ulang shiftnya. --}}
+                                                <a href="#" class="js-edit-modal btn btn-sm btn-icon btn-light-primary"
+                                                    title="Koreksi modal laci"
+                                                    data-id="{{ $currentShift->id }}"
+                                                    data-modal="{{ (int) $currentShift->starting_cash }}"
+                                                    data-name="{{ e(optional($currentShift->user)->name) }}">
+                                                    <i class="ki-outline ki-pencil fs-5"></i>
+                                                </a>
+                                            @endif
+                                        </span>
                                     </div>
                                     <div class="d-flex flex-stack mb-5">
                                         <span class="text-gray-600 fs-5">Pendapatan Tunai (Masuk)</span>
@@ -249,14 +262,15 @@
                                                 @if ($canReopen)
                                                     <td class="text-end">
                                                         @if ($hist->end_time && \Carbon\Carbon::parse($hist->end_time)->isToday())
-                                                            <form action="{{ route('shifts.reopen', $hist->id) }}" method="POST"
-                                                                class="d-inline"
-                                                                onsubmit="return confirm('Buka kembali shift {{ optional($hist->user)->name }} yang ditutup {{ \Carbon\Carbon::parse($hist->end_time)->format('H:i') }}? Kasir dapat melanjutkan transaksi di shift ini.');">
-                                                                @csrf
-                                                                <button type="submit" class="btn btn-sm btn-light-warning fw-bold">
-                                                                    <i class="ki-outline ki-arrow-circle-left fs-5"></i> Buka Kembali
-                                                                </button>
-                                                            </form>
+                                                            {{-- Membuka kembali menghapus angka penutup, jadi alasannya
+                                                                 diminta lewat modal (bukan confirm biasa) supaya ikut tercatat. --}}
+                                                            <button type="button" class="btn btn-sm btn-light-warning fw-bold js-buka-kembali"
+                                                                data-url="{{ route('shifts.reopen', $hist->id) }}"
+                                                                data-kasir="{{ optional($hist->user)->name }}"
+                                                                data-jam="{{ \Carbon\Carbon::parse($hist->end_time)->format('H:i') }}"
+                                                                data-aktual="{{ number_format((float) $hist->actual_cash, 0, ',', '.') }}">
+                                                                <i class="ki-outline ki-arrow-circle-left fs-5"></i> Buka Kembali
+                                                            </button>
                                                         @else
                                                             <span class="text-muted fs-8">—</span>
                                                         @endif
@@ -347,38 +361,103 @@
                 });
             }
 
-            // Owner/admin: koreksi Uang Modal Laci shift yang sedang berjalan.
+            // Koreksi Uang Modal Laci shift berjalan — memakai modal yang sama dengan
+            // "Buka Kembali" supaya keduanya meminta ALASAN dengan cara yang sama.
             document.addEventListener('click', function (e) {
                 var a = e.target.closest('.js-edit-modal');
                 if (!a) return;
                 e.preventDefault();
-                var id = a.getAttribute('data-id');
-                var cur = a.getAttribute('data-modal') || '';
-                var nm = a.getAttribute('data-name') || 'kasir';
-                Swal.fire({
-                    title: 'Edit Uang Modal Laci',
-                    text: 'Perbaiki uang modal laci (kembalian + pengeluaran) shift ' + nm + '.',
-                    input: 'number',
-                    inputValue: (cur && cur !== '0') ? cur : '',
-                    inputAttributes: { min: 0, step: 1000 },
-                    inputPlaceholder: 'mis. 500000',
-                    showCancelButton: true, confirmButtonText: 'Simpan', cancelButtonText: 'Batal',
-                    inputValidator: function (v) {
-                        var n = window.rawNum ? window.rawNum(v) : Number(String(v).replace(/[^\d]/g, ''));
-                        return (v === '' || v === null || isNaN(n) || n < 0) ? 'Masukkan nominal yang valid' : undefined;
-                    }
-                }).then(function (r) {
-                    if (!r.isConfirmed) return;
-                    var n = window.rawNum ? window.rawNum(r.value) : Number(String(r.value).replace(/[^\d]/g, ''));
-                    var f = document.createElement('form');
-                    f.method = 'POST';
-                    f.action = '{{ url('admin/shifts') }}/' + id + '/modal';
-                    f.innerHTML = '<input type="hidden" name="_token" value="{{ csrf_token() }}">'
-                        + '<input type="hidden" name="starting_cash" value="' + n + '">';
-                    document.body.appendChild(f);
-                    f.submit();
-                });
+                if (window.moodaModalAlasan) {
+                    window.moodaModalAlasan({
+                        url: '{{ url('admin/shifts') }}/' + a.getAttribute('data-id') + '/modal',
+                        judul: 'Koreksi Modal Laci',
+                        keterangan: 'Memperbaiki uang modal laci (kembalian + pengeluaran) shift '
+                            + (a.getAttribute('data-name') || 'kasir')
+                            + '. Angka “uang fisik seharusnya” ikut menyesuaikan saat shift ditutup nanti.',
+                        tampilModal: true,
+                        nilaiModal: a.getAttribute('data-modal') || '',
+                        tombol: 'Simpan Koreksi',
+                    });
+                }
             });
         </script>
     @endpush
+
+{{-- Modal alasan: dipakai dua tindakan yang mengubah angka uang shift.
+     Alasannya wajib karena keduanya tercatat di Log Activity, dan catatan tanpa
+     sebab tidak menolong siapa pun saat laporan kasir diperiksa ulang. --}}
+<div class="modal fade" id="m-alasan-shift" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST" id="f-alasan-shift">
+        @csrf
+        <div class="modal-header py-4">
+          <h3 class="modal-title fs-5 fw-bold" id="as-judul">Alasan</h3>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-light-warning border border-warning fs-8 py-3" id="as-keterangan"></div>
+          <div class="mb-3 d-none" id="as-wrap-modal">
+            <label class="form-label fw-semibold fs-8 required">Uang Modal Laci (Rp)</label>
+            <input type="text" name="starting_cash" id="as-modal" class="form-control form-control-solid">
+          </div>
+          <div>
+            <label class="form-label fw-semibold fs-8 required">Alasan</label>
+            <input type="text" name="alasan" id="as-alasan" class="form-control form-control-solid"
+                   maxlength="255" required placeholder="mis. kasir salah input modal saat buka shift">
+            <div class="fs-9 text-muted mt-1">Tersimpan di Log Activity bersama nilai lama &amp; barunya.</div>
+          </div>
+        </div>
+        <div class="modal-footer py-3">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
+          <button class="btn btn-primary fw-bold" id="as-simpan">Simpan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 @endsection
+
+@push('scripts')
+<script>
+(function () {
+  const modalEl = document.getElementById('m-alasan-shift');
+  const form    = document.getElementById('f-alasan-shift');
+  if (!modalEl || !form) return;
+
+  window.moodaModalAlasan = function ({ url, judul, keterangan, tampilModal, nilaiModal, tombol }) {
+    form.action = url;
+    document.getElementById('as-judul').textContent = judul;
+    document.getElementById('as-keterangan').innerHTML = keterangan;
+    document.getElementById('as-alasan').value = '';
+    document.getElementById('as-simpan').textContent = tombol;
+
+    const wrap = document.getElementById('as-wrap-modal');
+    wrap.classList.toggle('d-none', !tampilModal);
+    const inp = document.getElementById('as-modal');
+    inp.required = !!tampilModal;
+    inp.value = tampilModal ? nilaiModal : '';
+
+    new bootstrap.Modal(modalEl).show();
+  };
+
+  document.addEventListener('click', function (e) {
+    const bk = e.target.closest('.js-buka-kembali');
+    if (bk) {
+      window.moodaModalAlasan({
+        url: bk.dataset.url,
+        judul: 'Buka Kembali Shift',
+        keterangan: 'Shift <b>' + (bk.dataset.kasir || '-') + '</b> yang ditutup pukul ' + bk.dataset.jam +
+                    ' akan dibuka lagi. Uang aktual <b>Rp ' + bk.dataset.aktual + '</b> beserta angka selisihnya ' +
+                    'DIHAPUS dan diisi ulang saat shift ditutup kembali.',
+        tampilModal: false,
+        tombol: 'Buka Kembali',
+      });
+      return;
+    }
+
+  });
+})();
+</script>
+@endpush
