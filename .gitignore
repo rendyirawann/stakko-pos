@@ -55,3 +55,6 @@ animasi.mp4
 
 # backup .env (jangan pernah di-commit — berisi rahasia)
 .env.bak*
+
+# Proyek mobile (repo GitHub TERPISAH: mooda-fe & mooda-be) — jangan ikut repo stakko-pos
+/mooda-mobile/
