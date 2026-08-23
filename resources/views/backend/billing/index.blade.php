@@ -238,6 +238,64 @@
                 @endforeach
             </div>
 
+            {{-- PILIHAN FITUR TAMBAHAN (KATALOG) --}}
+            @if (! empty($katalogAddon))
+                <div class="card card-flush mb-5">
+                    <div class="card-header pt-5">
+                        <div>
+                            <h3 class="card-title fw-bold text-gray-800 mb-0">Fitur Tambahan yang Tersedia</h3>
+                            <span class="text-muted fs-8">
+                                Buka satu fitur saja tanpa harus menaikkan paket. Masa berlakunya mengikuti langganan Anda.
+                            </span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-4">
+                            @foreach ($katalogAddon as $kunci => $it)
+                                <div class="col-12 col-md-6 col-xl-4">
+                                    <div class="border rounded p-4 h-100 d-flex flex-column
+                                        {{ $it['aktif'] ? 'border-success bg-light-success' : 'border-gray-300' }}">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <i class="ki-outline {{ $it['ikon'] }} fs-2x text-{{ $it['warna'] }} me-3"></i>
+                                            <div>
+                                                <div class="fw-bold text-gray-800">{{ $it['label'] }}</div>
+                                                <div class="fs-8 text-muted">
+                                                    Rp {{ number_format($it['harga'], 0, ',', '.') }} / bulan
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="fs-8 text-gray-700 flex-grow-1">{{ $it['ringkas'] }}</div>
+                                        @if (! empty($it['catatan']))
+                                            <div class="fs-9 text-muted mt-2">{{ $it['catatan'] }}</div>
+                                        @endif
+
+                                        <div class="mt-3">
+                                            @if ($it['aktif'])
+                                                <span class="badge badge-light-success">
+                                                    Aktif s/d {{ optional($it['berlaku_sampai'])->translatedFormat('d M Y') ?? '—' }}
+                                                </span>
+                                            @elseif ($it['menunggu'])
+                                                <span class="badge badge-light-warning">Pengajuan sedang diproses</span>
+                                            @else
+                                                {{-- Tidak langsung aktif: pengaktifan add-on berbiaya adalah
+                                                     keputusan penjual, jadi ini mengirim pengajuan. --}}
+                                                <form method="POST" action="{{ route('billing.addon.ajukan') }}">
+                                                    @csrf
+                                                    <input type="hidden" name="module" value="{{ $kunci }}">
+                                                    <button class="btn btn-sm btn-light-{{ $it['warna'] }} w-100">
+                                                        Ajukan fitur ini
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             {{-- FITUR TAMBAHAN (ADD-ON) --}}
             @if (($addons ?? collect())->count())
                 <div class="card card-flush mb-5">
@@ -266,8 +324,16 @@
                                 <tbody>
                                 @foreach ($addons as $ad)
                                     @php
-                                        $warna = ['active' => 'success', 'pending' => 'warning',
-                                                  'expired' => 'secondary', 'cancelled' => 'secondary'][$ad->status] ?? 'secondary';
+                                        // Dihitung ulang, bukan disalin dari kolom status: baris 'active'
+                                        // yang tanggalnya sudah lewat akan tampak masih menyala padahal
+                                        // fiturnya sudah tertutup -- itu membuat pemilik toko mengira
+                                        // sudah membayar untuk sesuatu yang tidak jalan.
+                                        [$statusTeks, $warna] = match (true) {
+                                            $ad->status === 'pending'   => ['Menunggu diproses', 'warning'],
+                                            $ad->status === 'cancelled' => ['Dibatalkan', 'secondary'],
+                                            $ad->aktif()                => ['Aktif', 'success'],
+                                            default                     => ['Kedaluwarsa', 'danger'],
+                                        };
                                     @endphp
                                     <tr>
                                         <td>{{ $ad->created_at->translatedFormat('d M Y') }}</td>
@@ -281,7 +347,7 @@
                                         <td>
                                             <span class="badge badge-light-primary text-capitalize">{{ $ad->labelPeran() }}</span>
                                         </td>
-                                        <td><span class="badge badge-light-{{ $warna }} text-uppercase">{{ $ad->status }}</span></td>
+                                        <td><span class="badge badge-light-{{ $warna }}">{{ $statusTeks }}</span></td>
                                         <td>{{ $ad->ends_at ? $ad->ends_at->translatedFormat('d M Y') : '—' }}</td>
                                     </tr>
                                 @endforeach

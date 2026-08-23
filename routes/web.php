@@ -216,6 +216,12 @@ Route::middleware(['auth', 'forbid-banned-user', 'maintenance', 'verified'])->gr
     // dikunci tegas ke peran Superadmin.
     // ====================================================
     Route::middleware('role:Superadmin')->group(function () {
+        // Kelola fitur tambahan semua tenant (pengajuan -> aktifkan).
+        Route::get('/admin/superadmin/addons', [\App\Http\Controllers\Backend\Superadmin\AddonController::class, 'index'])->name('superadmin.addons.index');
+        Route::post('/admin/superadmin/addons/beri', [\App\Http\Controllers\Backend\Superadmin\AddonController::class, 'beri'])->name('superadmin.addons.beri');
+        Route::post('/admin/superadmin/addons/{id}/aktifkan', [\App\Http\Controllers\Backend\Superadmin\AddonController::class, 'aktifkan'])->name('superadmin.addons.aktifkan');
+        Route::post('/admin/superadmin/addons/{id}/batalkan', [\App\Http\Controllers\Backend\Superadmin\AddonController::class, 'batalkan'])->name('superadmin.addons.batalkan');
+
         Route::get('/admin/superadmin/shifts', [\App\Http\Controllers\Backend\Superadmin\ShiftManagementController::class, 'index'])
             ->name('superadmin.shifts.index');
         Route::put('/admin/superadmin/shifts/{id}', [\App\Http\Controllers\Backend\Superadmin\ShiftManagementController::class, 'update'])
@@ -377,6 +383,33 @@ Route::middleware(['auth', 'forbid-banned-user', 'maintenance', 'verified'])->gr
     });
 
     // ====================================================
+    // ====================================================
+    // AI ASSISTANT & AI PREDIKSI — modul add-on, TIDAK termasuk paket mana pun
+    // ====================================================
+    // Sengaja tidak dimasukkan ke config/plans.php: setiap pertanyaan memakai
+    // kuota penyedia AI yang berbiaya, jadi fitur ini harus diaktifkan sadar
+    // per tenant lewat `php artisan tenant:addon <tenant> ai_assistant`.
+    // Karena modulnya tak ada di paket, `plan:` hanya lolos bila add-on aktif,
+    // dan `addon:` membatasi peran mana yang boleh membuka layarnya.
+    Route::middleware(['subscribed', 'plan:ai_assistant', 'addon:ai_assistant'])->group(function () {
+        Route::get('/admin/ai/assistant', [\App\Http\Controllers\Backend\Ai\AssistantController::class, 'index'])->name('ai.assistant.index');
+        Route::get('/admin/ai/assistant/{uuid}', [\App\Http\Controllers\Backend\Ai\AssistantController::class, 'show'])->name('ai.assistant.show');
+        Route::post('/admin/ai/assistant/kirim', [\App\Http\Controllers\Backend\Ai\AssistantController::class, 'kirim'])->name('ai.assistant.kirim');
+        Route::delete('/admin/ai/assistant/{uuid}', [\App\Http\Controllers\Backend\Ai\AssistantController::class, 'hapus'])->name('ai.assistant.hapus');
+    });
+
+    // Pengajuan fitur tambahan oleh tenant. TIDAK digerbangi `plan:` -- justru
+    // dipakai oleh tenant yang BELUM punya modulnya.
+    Route::post('/admin/billing/addon/ajukan', [\App\Http\Controllers\Backend\Billing\BillingController::class, 'ajukanAddon'])
+        ->name('billing.addon.ajukan');
+
+    Route::middleware(['subscribed', 'plan:ai_prediksi', 'addon:ai_prediksi'])->group(function () {
+        Route::get('/admin/ai/prediksi', [\App\Http\Controllers\Backend\Ai\PrediksiController::class, 'index'])->name('ai.prediksi.index');
+        Route::post('/admin/ai/prediksi/analisis', [\App\Http\Controllers\Backend\Ai\PrediksiController::class, 'analisis'])->name('ai.prediksi.analisis');
+        Route::post('/admin/ai/prediksi/tafsir-tanggal', [\App\Http\Controllers\Backend\Ai\PrediksiController::class, 'tafsirTanggal'])->name('ai.prediksi.tafsir');
+        Route::get('/admin/ai/prediksi/pdf', [\App\Http\Controllers\Backend\Ai\PrediksiController::class, 'pdf'])->name('ai.prediksi.pdf');
+    });
+
     // DATA MASTER: view_data_master — Superadmin, admin
     // ====================================================
     // ====================================================

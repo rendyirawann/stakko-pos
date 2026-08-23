@@ -28,6 +28,7 @@ class BeriAddonTenant extends Command
         {--harga=10000 : harga per bulan}
         {--bulan= : jumlah bulan; kosong = ikut sisa langganan aktif}
         {--mulai= : tanggal mulai (Y-m-d); kosong = ikut langganan aktif}
+        {--sampai= : tanggal berakhir (Y-m-d); kosong = dihitung dari --bulan}
         {--peran=* : peran yang boleh membuka layarnya; kosong = semua peran}
         {--catatan= : catatan yang tampil di riwayat}';
 
@@ -60,8 +61,44 @@ class BeriAddonTenant extends Command
         $bulan = (int) ($this->option('bulan')
             ?: ($langganan?->ends_at ? max(1, $mulai->diffInMonths(Carbon::parse($langganan->ends_at))) : 1));
 
-        $selesai = $mulai->copy()->addMonths($bulan);
+        // --sampai dipakai bila diberikan, supaya add-on bisa berhenti PERSIS di
+        // tanggal langganan berakhir. Menghitung lewat jumlah bulan tidak selalu
+        // bisa mendarat tepat di tanggal itu.
+        if ($this->option('sampai')) {
+            $selesai = Carbon::parse($this->option('sampai'))->startOfDay();
+            if ($selesai->lte($mulai)) {
+                $this->error('--sampai harus setelah tanggal mulai.');
+
+                return self::FAILURE;
+            }
+            // Jumlah bulan ditaksir dari rentang nyata, dipakai untuk nominal.
+            $bulan = max(1, (int) round($mulai->diffInDays($selesai) / 30));
+        } else {
+            $selesai = $mulai->copy()->addMonths($bulan);
+        }
         $peran   = array_values(array_filter((array) $this->option('peran')));
+
+        // Periode diambil dari langganan aktif tenant. Bila langganan itu sudah
+        // lewat, add-on akan lahir dalam keadaan kedaluwarsa -- fiturnya tidak
+        // pernah menyala, sementara perintah ini tampak berhasil. Itu jebakan
+        // yang mahal untuk ditelusuri, jadi hentikan dan minta tanggal eksplisit.
+        if ($selesai->copy()->endOfDay()->isPast()) {
+            $this->error(sprintf(
+                "Periode yang terhitung (%s s/d %s) SUDAH LEWAT, jadi add-on tidak akan aktif.",
+                $mulai->format('d M Y'),
+                $selesai->format('d M Y')
+            ));
+            $this->line('Penyebab tersering: langganan tenant ini sudah berakhir, dan periode add-on mengikutinya.');
+            $this->line('Tentukan sendiri periodenya, contoh:');
+            $this->line(sprintf(
+                '  php artisan tenant:addon %s %s --mulai=%s --bulan=12',
+                $this->argument('tenant'),
+                $module,
+                now()->toDateString()
+            ));
+
+            return self::FAILURE;
+        }
 
         $addon = TenantAddon::create([
             'tenant_id'       => $tenant->id,
