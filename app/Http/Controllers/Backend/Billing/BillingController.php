@@ -47,7 +47,11 @@ class BillingController extends Controller
         $dokuChannels = $driver === 'doku' ? DokuVaChannel::activeForCurrentEnv() : collect();
         $tripayChannels = $driver === 'tripay' ? \App\Models\TripayChannel::activeOrdered() : collect();
 
-        return view('backend.billing.index', compact('tenant', 'plans', 'history', 'addons', 'clientKey', 'isProduction', 'driver', 'dokuChannels', 'tripayChannels'));
+        // Katalog add-on yang bisa dipilih tenant ini (yang sudah termasuk
+        // paketnya tidak ditawarkan lagi supaya tidak dibayar dua kali).
+        $katalogAddon = \App\Tenancy\AddonCatalog::untukTenant($tenant);
+
+        return view('backend.billing.index', compact('tenant', 'plans', 'history', 'addons', 'katalogAddon', 'clientKey', 'isProduction', 'driver', 'dokuChannels', 'tripayChannels'));
     }
 
     /**
@@ -628,5 +632,59 @@ class BillingController extends Controller
         if (!empty($notifyUrl)) {
             \Midtrans\Config::$overrideNotifUrl = $notifyUrl;
         }
+    }
+
+    /**
+     * Ajukan fitur tambahan.
+     *
+     * Sengaja TIDAK langsung mengaktifkan: add-on berbiaya, dan pengaktifan
+     * adalah keputusan penjual, bukan pembeli. Yang dibuat di sini berstatus
+     * `pending` dan menunggu Superadmin — sekaligus tercatat di riwayat tenant
+     * sehingga pengajuannya tidak hilang begitu halaman ditutup.
+     */
+    public function ajukanAddon(Request $request)
+    {
+        $request->validate(['module' => ['required', 'string', 'max:60']]);
+
+        $tenant = auth()->user()->tenant;
+        if (! $tenant) {
+            abort(404, 'Tenant tidak ditemukan untuk akun ini.');
+        }
+
+        $module = (string) $request->input('module');
+        if (! \App\Tenancy\AddonCatalog::ada($module)) {
+            return back()->with('error', 'Fitur tambahan itu tidak ada di katalog.');
+        }
+        if (\App\Tenancy\Plan::tenantAllows($tenant, $module)) {
+            return back()->with('error', 'Fitur itu sudah aktif untuk toko Anda.');
+        }
+
+        // Satu pengajuan berjalan per modul: menekan tombol dua kali tidak boleh
+        // membuat dua tagihan.
+        $adaPending = \App\Models\TenantAddon::where('tenant_id', $tenant->id)
+            ->where('module', $module)->where('status', 'pending')->exists();
+        if ($adaPending) {
+            return back()->with('success', 'Pengajuan Anda sudah kami terima dan sedang diproses.');
+        }
+
+        $item = \App\Tenancy\AddonCatalog::item($module);
+
+        \App\Models\TenantAddon::create([
+            'tenant_id' => $tenant->id,
+            'module'    => $module,
+            'label'     => $item['label'],
+            'price_per_month' => (float) $item['harga'],
+            'months'    => 1,
+            'amount'    => (float) $item['harga'],
+            'status'    => 'pending',
+            'allowed_roles' => $item['peran_default'] ?? null,
+            'note'      => 'Diajukan dari halaman Langganan.',
+        ]);
+
+        activity('addon-ajukan')
+            ->withProperties(['tenant_id' => $tenant->id, 'module' => $module])
+            ->log("Tenant mengajukan add-on {$module}");
+
+        return back()->with('success', "Pengajuan {$item['label']} terkirim. Kami akan menghubungi Anda untuk pengaktifannya.");
     }
 }

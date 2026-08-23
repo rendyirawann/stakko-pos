@@ -399,6 +399,37 @@
                         @endcan
                     @endif
 
+    {{-- AI ASSISTANT & AI PREDIKSI: modul add-on, tidak termasuk paket apa pun.
+         Sama seperti HPP, dipakai Addon::bolehLihat agar pemilik toko bisa
+         membatasi siapa yang boleh membukanya -- jawaban AI memuat angka
+         penjualan dan laba, jadi tidak selalu untuk semua staf. --}}
+                    @php
+                        $sbAiChat = auth()->user()->isSuperadmin()
+                            || (\App\Tenancy\Plan::tenantAllows($currentTenant ?? null, 'ai_assistant')
+                                && \App\Tenancy\Addon::bolehLihat($currentTenant ?? null, 'ai_assistant'));
+                        $sbAiPred = auth()->user()->isSuperadmin()
+                            || (\App\Tenancy\Plan::tenantAllows($currentTenant ?? null, 'ai_prediksi')
+                                && \App\Tenancy\Addon::bolehLihat($currentTenant ?? null, 'ai_prediksi'));
+                    @endphp
+                    @if ($sbAiChat)
+                        <div class="col mb-4">
+                            <a href="{{ route('ai.assistant.index') }}"
+                                class="btn btn-icon btn-outline btn-bg-light btn-active-light-success btn-flex flex-column flex-center w-lg-90px h-lg-90px w-70px h-70px border-gray-200">
+                                <span class="mb-2"><i class="ki-outline ki-messages fs-2x text-success"></i></span>
+                                <span class="fs-8 fw-bold">AI Assistant</span>
+                            </a>
+                        </div>
+                    @endif
+                    @if ($sbAiPred)
+                        <div class="col mb-4">
+                            <a href="{{ route('ai.prediksi.index') }}"
+                                class="btn btn-icon btn-outline btn-bg-light btn-active-light-primary btn-flex flex-column flex-center w-lg-90px h-lg-90px w-70px h-70px border-gray-200">
+                                <span class="mb-2"><i class="ki-outline ki-chart-line-up fs-2x text-primary"></i></span>
+                                <span class="fs-8 fw-bold">AI Prediksi</span>
+                            </a>
+                        </div>
+                    @endif
+
                     {{-- KARYAWAN (User Management) --}}
                     @can('view_resources')
                     <div class="col mb-4">
@@ -437,8 +468,8 @@
                      *                             (kalau punya, fitur tampil sebagai menu nyata di atas).
                      */
                     $aiFeatures = [
-                        ['label' => 'AI Assistant', 'icon' => 'ki-messages',      'color' => 'success', 'module' => null, 'desc' => 'Chatbot WhatsApp & upselling otomatis'],
-                        ['label' => 'AI Prediksi',  'icon' => 'ki-chart-line-up', 'color' => 'primary', 'module' => null, 'desc' => 'Prediksi stok, penjualan & rekomendasi promo'],
+                        ['label' => 'AI Assistant', 'icon' => 'ki-messages',      'color' => 'success', 'module' => 'ai_assistant', 'desc' => 'Tanya jawab tentang stok, HPP & laba toko Anda'],
+                        ['label' => 'AI Prediksi',  'icon' => 'ki-chart-line-up', 'color' => 'primary', 'module' => 'ai_prediksi',  'desc' => 'Analisis penjualan, prediksi stok & laporan PDF'],
                     ];
 
                     // Laundry: hanya fitur AI (HPP/Inventory dsb. modul F&B).
