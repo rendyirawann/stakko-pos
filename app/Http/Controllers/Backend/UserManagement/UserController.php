@@ -348,6 +348,17 @@ class UserController extends Controller implements HasMiddleware
             $data->no_wa    = $request->no_wa;
             $data->email    = $request->email;
             $data->password = Hash::make($request->password);
+
+            // Akun yang DIBUAT owner/admin langsung dianggap terverifikasi.
+            //
+            // Verifikasi email gunanya membuktikan pendaftar memiliki alamat yang
+            // dipakainya. Di sini pendaftarnya bukan pemilik akun, melainkan owner
+            // yang sudah terverifikasi dan menentukan sendiri email serta sandinya.
+            // Tanpa baris ini akun kasir lahir terhalang `verified` dan tidak bisa
+            // dipakai sampai membuka tautan di email -- yang sering tidak mereka
+            // miliki aksesnya (banyak toko memakai satu email untuk beberapa staf).
+            $data->email_verified_at = now();
+
             $data->assignRole($request->input('roles'));
 
 
