@@ -73,7 +73,11 @@ class ExpenseController extends Controller
         return DataTables::of($data)
             ->addIndexColumn()
             ->addColumn('date', fn ($row) => '<span class="badge badge-light-primary fs-7">' . Carbon::parse($row->date)->translatedFormat('d M Y') . '</span>')
+            // Badge "tidak dari laci" WAJIB terlihat di daftar: sebelumnya status ini hanya
+            // muncul di dalam modal Edit satu per satu, sehingga pengeluaran yang tidak
+            // membebani laci hilang tanpa jejak dan baru ketahuan saat tutup shift minus.
             ->addColumn('title', fn ($row) => '<span class="fw-bold text-gray-800">' . e($row->category) . '</span>'
+                . (is_null($row->shift_id) ? ' <span class="badge badge-light-warning fs-8" title="Tidak mengurangi kas shift mana pun">tidak dari laci</span>' : '')
                 . ($row->notes ? '<br><span class="text-muted fs-7">' . e(Str::limit($row->notes, 50)) . '</span>' : ''))
             ->addColumn('amount', fn ($row) => '<span class="fw-bold text-danger">Rp ' . number_format($row->amount, 0, ',', '.') . '</span>')
             ->addColumn('user', fn ($row) => e(optional($row->user)->name ?? 'Sistem'))

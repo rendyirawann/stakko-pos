@@ -26,12 +26,23 @@ class Expense extends Model
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
-            // Tautkan ke shift kasir yang sedang TERBUKA. Bisa diedit/dikosongkan bila
-            // pengeluaran ini bukan dari laci shift tsb (mis. input susulan / dibayar terpisah)
-            // -> maka tak mengurangi laci shift itu, tapi tetap masuk laporan by `date`.
-            if (empty($model->shift_id)) {
-                $model->shift_id = Shift::where('user_id', \Illuminate\Support\Facades\Auth::id())
+            // Tautkan ke shift yang sedang TERBUKA di tenant ini, SIAPA PUN pencatatnya.
+            //
+            // Aturan lama mencari shift milik PENCATAT (Auth::id()). Owner/admin memang
+            // tidak pernah membuka shift sendiri, jadi hasilnya selalu NULL -> pengeluaran
+            // mereka diam-diam tidak mengurangi laci saat tutup shift, dan kasir tampak
+            // kurang setor sebesar nominal itu.
+            //
+            // tenant_id dikunci eksplisit: TenantScope TIDAK diterapkan bila tak ada tenant
+            // aktif (Superadmin/proses sistem), sehingga tanpa kunci ini pengeluaran bisa
+            // nyantol ke shift tenant lain.
+            //
+            // Bila uangnya memang bukan dari laci (mis. gaji via transfer), pakai toggle
+            // "Bukan dari laci/kas shift" -> shift_id dikosongkan lagi.
+            if (empty($model->shift_id) && ! empty($model->tenant_id)) {
+                $model->shift_id = Shift::where('tenant_id', $model->tenant_id)
                     ->where('status', 'open')
+                    ->latest('start_time')
                     ->value('id');
             }
         });
