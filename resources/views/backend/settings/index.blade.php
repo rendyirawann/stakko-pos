@@ -2,7 +2,28 @@
 @section('title', 'Pengaturan Sistem')
 @section('content')
 
-    @php $canGeneral = auth()->user()->can('view_data_master'); @endphp
+    @php
+        $canGeneral = auth()->user()->can('view_data_master');
+
+        // Definisikan di LUAR @if($canGeneral): $previewItemsJson dipakai oleh blok <script>
+        // di bawah yang selalu dirender. Saat definisinya masih di dalam tab General, pengguna
+        // tanpa izin view_data_master membuka halaman ini dan langsung kena 500.
+        // Label pajak mengikuti VERTICAL: PB1 hanya untuk restoran/F&B;
+        // laundry & retail memakai istilah pajak umum (PPN).
+        $stIsLaundry = ($currentTenant ?? null) && $currentTenant->isLaundry();
+        $taxLabel = $stIsLaundry ? 'Pajak / PPN' : 'Pajak Restoran (PB1)';
+
+        // Item contoh untuk pratinjau struk (dipakai di blok <script> bawah).
+        $previewItemsJson = json_encode($stIsLaundry
+            ? [
+                ['name' => 'Cuci Setrika Kiloan', 'qty' => 3, 'price' => 9000, 'subtotal' => 27000, 'notes' => 'parfum lavender'],
+                ['name' => 'Bed Cover', 'qty' => 1, 'price' => 25000, 'subtotal' => 25000],
+            ]
+            : [
+                ['name' => 'Kopi Susu', 'qty' => 2, 'price' => 18000, 'subtotal' => 36000, 'addons' => [['name' => 'Extra Shot']], 'notes' => 'less ice'],
+                ['name' => 'Roti Bakar', 'qty' => 1, 'price' => 15000, 'subtotal' => 15000],
+            ]);
+    @endphp
 
     <div id="kt_app_content" class="app-content flex-column-fluid mt-5">
         <div id="kt_app_content_container" class="app-container container-xxl">
@@ -46,23 +67,6 @@
                                 </div>
                             </div>
                             <div class="row mb-2">
-                                @php
-                                    // Label pajak mengikuti VERTICAL: PB1 hanya untuk restoran/F&B;
-                                    // laundry & retail memakai istilah pajak umum (PPN).
-                                    $stIsLaundry = ($currentTenant ?? null) && $currentTenant->isLaundry();
-                                    $taxLabel = $stIsLaundry ? 'Pajak / PPN' : 'Pajak Restoran (PB1)';
-
-                                    // Item contoh untuk pratinjau struk (dipakai di blok <script> bawah).
-                                    $previewItemsJson = json_encode($stIsLaundry
-                                        ? [
-                                            ['name' => 'Cuci Setrika Kiloan', 'qty' => 3, 'price' => 9000, 'subtotal' => 27000, 'notes' => 'parfum lavender'],
-                                            ['name' => 'Bed Cover', 'qty' => 1, 'price' => 25000, 'subtotal' => 25000],
-                                        ]
-                                        : [
-                                            ['name' => 'Kopi Susu', 'qty' => 2, 'price' => 18000, 'subtotal' => 36000, 'addons' => [['name' => 'Extra Shot']], 'notes' => 'less ice'],
-                                            ['name' => 'Roti Bakar', 'qty' => 1, 'price' => 15000, 'subtotal' => 15000],
-                                        ]);
-                                @endphp
                                 <label class="col-lg-3 col-form-label required fw-semibold fs-6">{{ $taxLabel }}</label>
                                 <div class="col-lg-9">
                                     <div class="input-group input-group-solid w-200px">
