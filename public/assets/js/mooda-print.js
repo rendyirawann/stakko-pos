@@ -239,6 +239,7 @@ window.MoodaPrint = (function () {
     // -------- Web Bluetooth (auto-reconnect tahan-banting) --------
     let bleChar = null, bleDevice = null, bleReconnecting = false;
     let bleWatchdog = null, bleWantConnected = false;
+    let bleKeepAlive = null, blePrinting = false, bleVisBound = false;
 
     async function discoverWritable(server) {
         const svcs = await server.getPrimaryServices();
@@ -285,6 +286,21 @@ window.MoodaPrint = (function () {
         finally { bleReconnecting = false; }
     }
 
+    // Denyut anti-idle: printer thermal menjatuhkan link BLE bila lama tak ada lalu lintas.
+    // ESC @ (inisialisasi printer) TIDAK memakan kertas dan tidak mencetak apa pun -- byte
+    // yang sama sudah dipakai sebagai pembuka tiap struk, jadi aman dikirim berkala.
+    // Tujuannya MENCEGAH putus, bukan sekadar menyembuhkan setelah putus seperti watchdog.
+    async function bleKeepAliveTick() {
+        if (!bleWantConnected || blePrinting || bleReconnecting) return;
+        if (document.hidden) return;                       // tab tersembunyi: tak perlu dibangunkan
+        if (!bleChar || !bleDevice || !bleDevice.gatt || !bleDevice.gatt.connected) return;
+        try {
+            const ping = new Uint8Array([ESC, 0x40]);
+            if (bleChar.writeValueWithoutResponse) await bleChar.writeValueWithoutResponse(ping);
+            else await bleChar.writeValue(ping);
+        } catch (e) { bleChar = null; }                    // gagal -> watchdog yang menyambung ulang
+    }
+
     // Watchdog: cek berkala & sambung ulang otomatis bila printer terputus saat idle,
     // supaya koneksi "diingat" dan tetap siap cetak tanpa perlu klik Hubungkan lagi.
     function startBleWatchdog() {
@@ -293,7 +309,17 @@ window.MoodaPrint = (function () {
             if (!bleWantConnected || !bleDevice || bleReconnecting) return;
             const connected = bleDevice.gatt && bleDevice.gatt.connected;
             if (!connected) { onBleDisconnect(); }
-        }, 15000);
+        }, 5000);
+        bleKeepAlive = setInterval(bleKeepAliveTick, 20000);
+
+        // Saat kasir kembali ke tab, jangan menunggu siklus watchdog berikutnya.
+        if (!bleVisBound) {
+            bleVisBound = true;
+            document.addEventListener('visibilitychange', function () {
+                if (document.hidden || !bleWantConnected || !bleDevice || bleReconnecting) return;
+                if (!(bleDevice.gatt && bleDevice.gatt.connected)) onBleDisconnect();
+            });
+        }
     }
 
     // Pastikan terhubung + karakteristik siap sebelum menulis.
@@ -322,6 +348,9 @@ window.MoodaPrint = (function () {
         });
         bleDevice = dev;
         bleWantConnected = true;
+        // Simpan id printer pilihan: bila nanti ada >1 perangkat yang pernah diizinkan,
+        // restoreBle() memulihkan yang INI, bukan yang kebetulan pertama di daftar.
+        try { localStorage.setItem('mooda_ble_id', dev.id || ''); } catch (e) {}
         bindDisconnect(dev);
         startBleWatchdog();
         const server = await connectGatt(dev);
@@ -331,29 +360,54 @@ window.MoodaPrint = (function () {
 
     async function printBle(r) {
         const bytes = bytesFromReceipt(r);
-        // Tulis; jika putus di tengah, sambung ulang lalu ulangi (beberapa kali) sebelum menyerah.
-        for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-                await ensureBle();
-                await writeChunks(bytes);
-                return;
-            } catch (e) {
-                bleChar = null;
-                if (attempt === 2) throw e;
-                await sleep(400 * (attempt + 1));
+        blePrinting = true;   // tahan denyut keep-alive agar tidak menyisip di tengah struk
+        try {
+            // Tulis; jika putus di tengah, sambung ulang lalu ulangi (beberapa kali) sebelum menyerah.
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    await ensureBle();
+                    await writeChunks(bytes);
+                    return;
+                } catch (e) {
+                    bleChar = null;
+                    if (attempt === 2) throw e;
+                    await sleep(400 * (attempt + 1));
+                }
             }
-        }
+        } finally { blePrinting = false; }
     }
 
     // Pulihkan printer yang sudah pernah diizinkan tanpa dialog pemilihan (Chrome getDevices()),
     // agar reconnect mulus setelah pindah halaman. Aman dipanggil kapan saja (no-op bila tak didukung).
+    // Petunjuk sekali-tampil: tanpa getDevices(), printer TIDAK BISA diingat lintas halaman.
+    // Itu batas platform Chrome (flag eksperimental), bukan kegagalan pairing -- dan sebelumnya
+    // restoreBle() gagal tanpa suara sehingga kasir mengira aplikasinya yang rusak.
+    function hintPersistentPermission() {
+        try { if (localStorage.getItem('mooda_ble_flag_hint')) return; } catch (e) {}
+        try { localStorage.setItem('mooda_ble_flag_hint', '1'); } catch (e) {}
+        if (!window.Swal) return;
+        Swal.fire({
+            icon: 'info',
+            title: 'Agar printer diingat',
+            html: 'Browser ini belum bisa mengingat printer Bluetooth antar halaman, jadi tombol ' +
+                  '<b>Hubungkan</b> muncul terus.<br><br>Sekali saja, di HP/tablet kasir:<br>' +
+                  '1. Buka <b>chrome://flags</b><br>' +
+                  '2. Cari <b>web-bluetooth-new-permissions-backend</b><br>' +
+                  '3. Ubah ke <b>Enabled</b>, lalu restart Chrome<br>' +
+                  '4. Hubungkan printer sekali lagi<br><br>Setelah itu printer nyambung sendiri.',
+            confirmButtonText: 'Mengerti',
+        });
+    }
+
     async function restoreBle() {
         try {
-            if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return false;
+            if (!navigator.bluetooth) return false;
             if (bleDevice) return true;
+            if (!navigator.bluetooth.getDevices) { hintPersistentPermission(); return false; }
             const devs = await navigator.bluetooth.getDevices();
             if (!devs || !devs.length) return false;
-            bleDevice = devs[0];
+            let want = null; try { want = localStorage.getItem('mooda_ble_id'); } catch (e) {}
+            bleDevice = (want && devs.find(d => d.id === want)) || devs[0];
             bleWantConnected = true;
             bindDisconnect(bleDevice);
             startBleWatchdog();
