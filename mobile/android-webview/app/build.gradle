@@ -3,6 +3,25 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Kunci penandatanganan dibaca dari keystore.properties yang TIDAK ikut repo (lihat
+// .gitignore). Repo ini publik: file .jks maupun kata sandinya tak boleh pernah masuk git.
+//
+// Buat mobile/android-webview/keystore.properties berisi 4 baris:
+//   storeFile=D:/path/ke/mooda-release.jks
+//   storePassword=...
+//   keyAlias=...
+//   keyPassword=...
+// Setelah itu APK rilis bisa ditandatangani langsung dari terminal:
+//   ./gradlew assembleRelease
+//
+// Bila berkas itu tidak ada, build tetap jalan tapi menghasilkan APK TAK bertanda tangan
+// (tidak bisa dipasang) -- sengaja, agar build di mesin lain tidak gagal total.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 android {
     namespace 'id.stakko.pos'
     compileSdk 34
@@ -15,10 +34,26 @@ android {
         versionName "1.0.2"
     }
 
+    signingConfigs {
+        release {
+            if (keystoreProps['storeFile']) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Tanpa keystore.properties -> biarkan tak bertanda tangan, jangan pakai kunci debug:
+            // kunci debug BERBEDA dari kunci rilis, dan Android menolaknya sebagai update.
+            if (keystoreProps['storeFile']) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {
