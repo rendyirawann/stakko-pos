@@ -678,10 +678,22 @@
     // Rute unduhan dijaga middleware 'subscribed'; tenant tanpa akses aktif akan dilempar
     // ke billing, jadi jangan ditawari sesuatu yang tak bisa ia buka.
     $showApkAd = auth()->check()
+        && auth()->user()->hasRole('owner')   // keputusan pakai tablet ada di owner, bukan kasir
         && !auth()->user()->isSuperadmin()
         && str_contains($ua, 'Android')
         && !str_contains($ua, 'MoodaAPK/')
         && optional(auth()->user()->tenant)->hasActiveAccess();
+
+    // Sekali TIAP LOGIN, bukan tiap kali dashboard dibuka. Penanda ditaruh di session
+    // yang lahir & mati bersama sesi login, jadi refresh tidak memunculkannya lagi
+    // sementara login berikutnya memunculkannya kembali.
+    if ($showApkAd) {
+        if (session('apk_ad_shown')) {
+            $showApkAd = false;
+        } else {
+            session(['apk_ad_shown' => true]);
+        }
+    }
 @endphp
 
 @if ($showApkAd)
@@ -709,6 +721,8 @@
                     setTimeout(function () {
                         if (Swal.isVisible()) return;
 
+                        var tundaDipilih = false;
+
                         Swal.fire({
                             imageUrl: "{{ asset('assets/media/logos/mooda-logo.png') }}",
                             imageWidth: 150,
@@ -722,23 +736,32 @@
                                 + '<div class="d-flex"><i class="ki-outline ki-screen fs-3 text-primary me-3 mt-1"></i>'
                                 + '<span>Layar penuh, tanpa bilah alamat browser</span></div>'
                                 + '</div>',
+                            input: 'checkbox',
+                            inputPlaceholder: 'Jangan tampilkan lagi selama 30 hari',
                             confirmButtonText: 'Pasang Sekarang',
                             showCancelButton: true,
                             cancelButtonText: 'Nanti',
                             allowOutsideClick: false,
+                            // Dibaca SEBELUM popup dimusnahkan: di dalam .then() inputnya
+                            // sudah tidak ada, dan tombol "Nanti" tak membawa nilai input.
+                            willClose: function (el) {
+                                var cb = el.querySelector('.swal2-checkbox input');
+                                tundaDipilih = !!(cb && cb.checked);
+                            },
                             customClass: {
                                 confirmButton: 'btn btn-primary fw-bold',
                                 cancelButton: 'btn btn-light fw-bold',
                             },
                             buttonsStyling: false,
                         }).then(function (r) {
+                            // Penundaan HANYA bila owner mencentangnya. Tanpa centang, modal
+                            // menyapa lagi di login berikutnya -- itu yang diminta.
+                            if (tundaDipilih) { tunda(30); }
+
                             if (r.isConfirmed) {
                                 // Diarahkan ke halaman Aplikasi (bukan langsung unduh berkas),
-                                // supaya kasir membaca cara pasang & izin "sumber tidak dikenal".
-                                tunda(14);
+                                // supaya owner membaca cara pasang & izin "sumber tidak dikenal".
                                 window.location.href = "{{ route('download-app') }}";
-                            } else {
-                                tunda(3);
                             }
                         });
                     }, 1200);
