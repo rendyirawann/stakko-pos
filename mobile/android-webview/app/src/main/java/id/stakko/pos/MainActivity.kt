@@ -17,6 +17,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -52,6 +54,26 @@ class MainActivity : AppCompatActivity() {
     private var printSocket: BluetoothSocket? = null
     private var printMac: String? = null
     private val printLock = Any()
+
+    // --- Penjaga koneksi printer (denyut native) ---
+    // Printer thermal murah menjatuhkan link saat menganggur, dan RFCOMM Android kerap tetap
+    // melaporkan isConnected=true untuk socket yang sudah mati. Tanpa penjaga, kematian itu
+    // baru ketahuan SAAT mencetak: struk pertama gagal dulu, baru sembuh lewat retry.
+    //
+    // Penjaga ini MEMERIKSA tanpa mengirim satu byte pun ke printer (lihat sppAlive), lalu
+    // menyambung ulang diam-diam. Byte hanya ditulis saat benar-benar mencetak -- sejalan
+    // dengan keputusan di sisi web (73fecf3): denyut yang mengirim ESC @ berisiko memuntahkan
+    // kertas kosong pada printer murah yang tidak patuh spesifikasi.
+    private val watchdog = Handler(Looper.getMainLooper())
+    private val watchIntervalMs = 20_000L
+    @Volatile private var printing = false
+    private var watching = false
+    private val watchTick = object : Runnable {
+        override fun run() {
+            Thread { keepPrinterAlive() }.start()
+            watchdog.postDelayed(this, watchIntervalMs)
+        }
+    }
 
     // --- BLE / GATT (printer BLE, mis. EcoPrint: service 0x18F0, karakteristik 0x2AF1) ---
     private val BLE_SERVICE_UUID: UUID = UUID.fromString("000018f0-0000-1000-8000-00805f9b34fb")
@@ -175,7 +197,23 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState); webView.saveState(outState)
     }
 
+    // Kembali dari layar mati/aplikasi lain: link printer mungkin sudah dijatuhkan selagi
+    // tidak terlihat. Penjaga dijalankan lagi supaya sambungan pulih SEBELUM kasir menekan
+    // cetak, bukan sesudahnya.
+    override fun onResume() {
+        super.onResume()
+        startWatchdog()
+    }
+
+    // Socket sengaja TIDAK ditutup saat aplikasi tersembunyi -- hanya pemeriksaannya yang
+    // berhenti, agar tak menguras baterai di latar belakang.
+    override fun onPause() {
+        stopWatchdog()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        stopWatchdog()
         synchronized(printLock) { closeAll() }
         super.onDestroy()
     }
@@ -313,10 +351,59 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeAll() { closeSocket(); closeBle() }
 
+    // ---------- Penjaga koneksi ----------
+
+    private fun startWatchdog() {
+        if (watching) return
+        watching = true
+        watchdog.postDelayed(watchTick, 1_500L)   // beri jeda sebentar saat aplikasi baru tampil
+    }
+
+    private fun stopWatchdog() {
+        watching = false
+        watchdog.removeCallbacks(watchTick)
+    }
+
+    // Apakah socket SPP benar-benar hidup?
+    //
+    // isConnected saja tidak cukup: RFCOMM Android tetap melaporkan true untuk socket yang
+    // peer-nya sudah menghilang. available() membaca status stream lokal dan melempar bila
+    // link sudah putus -- dan yang penting, ia TIDAK mengirim apa pun ke printer.
+    private fun sppAlive(): Boolean {
+        val s = printSocket ?: return false
+        if (!s.isConnected) return false
+        return try { s.inputStream.available(); true } catch (_: Exception) { false }
+    }
+
+    // Dipanggil tiap denyut. Diam total: tak ada toast, karena bukan aksi pengguna.
+    @SuppressLint("MissingPermission")
+    private fun keepPrinterAlive() {
+        if (printing || !hasBtPermission()) return
+        val ad = adapter() ?: return
+        if (!ad.isEnabled) return
+        val device = pickDevice() ?: return
+
+        synchronized(printLock) {
+            if (printing) return
+            val leFirst = try { device.type == BluetoothDevice.DEVICE_TYPE_LE } catch (_: Exception) { false }
+            if (leFirst) {
+                // GATT yang putus melapor lewat onConnectionStateChange -> bleWriteChar jadi null.
+                if (bleGatt == null || bleWriteChar == null) { closeBle(); ensureBleReady(device) }
+            } else {
+                // Termasuk saat printer pilihan diganti (printMac beda) -> sambung ke yang baru.
+                if (printMac != device.address || !sppAlive()) {
+                    closeSocket()
+                    try { ensureSocket(device) } catch (_: Exception) { closeSocket() }
+                }
+            }
+        }
+    }
+
     // Sambungkan ke printer terpilih TANPA mencetak (dipanggil saat login agar siap duluan).
     @SuppressLint("MissingPermission")
     private fun doConnect() {
-        synchronized(printLock) {
+        printing = true
+        try { synchronized(printLock) {
             if (!hasBtPermission()) { ensureBtPermission(); toast("Beri izin Bluetooth lalu coba lagi."); return }
             val ad = adapter()
             if (ad == null || !ad.isEnabled) { toast("Bluetooth mati / tidak tersedia."); return }
@@ -333,12 +420,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             toast("Gagal menyambung printer. Pastikan menyala, dekat, & sudah di-pair.")
-        }
+        } } finally { printing = false }
     }
 
     @SuppressLint("MissingPermission")
     private fun doPrint(text: String) {
-        synchronized(printLock) {
+        printing = true
+        try { synchronized(printLock) {
             if (!hasBtPermission()) { ensureBtPermission(); toast("Beri izin Bluetooth lalu coba lagi."); return }
             val ad = adapter()
             if (ad == null || !ad.isEnabled) { toast("Bluetooth mati / tidak tersedia."); return }
@@ -366,7 +454,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             toast("Gagal mencetak. Pastikan printer menyala, dekat, & sudah di-pair di Setelan Bluetooth.")
-        }
+        } } finally { printing = false }
     }
 
     // ---------- Bridge yang dipanggil dari JavaScript ----------
