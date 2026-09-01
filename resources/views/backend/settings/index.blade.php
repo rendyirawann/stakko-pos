@@ -196,6 +196,22 @@
                             {{-- Petunjuk otomatis sesuai metode terpilih --}}
                             <div class="form-text mt-3" id="printer-hint"></div>
 
+                            {{-- Izin Bluetooth permanen: hanya tampil bila metode Web Bluetooth dipilih.
+                                 Tanpa ini printer harus dihubungkan ulang tiap pindah halaman. --}}
+                            <div class="separator my-6 d-none" id="ble-persist-sep"></div>
+                            <div class="d-none bg-light-primary rounded border border-primary border-dashed p-5" id="ble-persist-panel">
+                                <div class="d-flex">
+                                    <i class="ki-outline ki-shield-tick fs-2x text-primary me-4 mt-1"></i>
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                            <h4 class="fw-bold text-gray-900 mb-0">Agar printer diingat antar halaman</h4>
+                                            <span class="badge badge-light" id="ble-persist-status">memeriksa…</span>
+                                        </div>
+                                        <div class="fs-7 text-gray-700" id="ble-persist-body"></div>
+                                    </div>
+                                </div>
+                            </div>
+
                             {{-- Cetak senyap / kiosk untuk metode Dialog Browser --}}
                             <div class="separator my-6"></div>
                             <div class="d-flex bg-light-warning rounded border border-warning border-dashed p-5">
@@ -240,7 +256,7 @@
 
                 // Petunjuk + tombol "Hubungkan" menyesuaikan metode yang sedang dipilih
                 const HINTS = {
-                    webbluetooth: 'Klik "Hubungkan Printer Bluetooth", pilih printer BLE Anda, lalu "Test Cetak". Wajib Chrome/Edge (bukan Brave) + HTTPS. Catatan: koneksi Bluetooth berlaku per-halaman, jadi saat transaksi hubungkan lagi dari halaman Kasir.',
+                    webbluetooth: 'Klik "Hubungkan Printer Bluetooth", pilih printer BLE Anda, lalu "Test Cetak". Wajib Chrome/Edge (bukan Brave) + HTTPS. Agar printer tidak perlu dihubungkan ulang tiap pindah halaman, ikuti kotak biru di bawah.',
                     qztray: 'Pastikan aplikasi QZ Tray berjalan di komputer ini, klik "Pilih Printer" untuk memilih printer, lalu "Test Cetak".',
                     native: 'Klik "Pilih Printer" untuk memilih printer Bluetooth yang sudah dipasangkan di tablet, lalu "Test Cetak".',
                     browser: 'Tidak perlu "Hubungkan". Jadikan printer thermal sebagai printer default OS, lalu klik "Test Cetak" (akan lewat dialog print / senyap jika mode kiosk).',
@@ -254,6 +270,85 @@
                     $('#btn-connect-printer').toggleClass('d-none', !needs);
                     if (needs) $('#connect-label').text(window.MoodaPrint.buttonLabel());
                     $('#printer-hint').text(HINTS[m] || HINTS[$('input[name=printer_method]:checked').val()] || '');
+
+                    const isBle = (m === 'webbluetooth');
+                    $('#ble-persist-panel, #ble-persist-sep').toggleClass('d-none', !isBle);
+                    if (isBle) renderBlePersist();
+                }
+
+                // ===== Izin Bluetooth permanen =====
+                // Halaman web TIDAK BOLEH menavigasi ke chrome:// / edge:// (diblokir browser demi
+                // keamanan -- kalau tidak, sembarang situs bisa menyalakan fitur eksperimental di
+                // browser pengunjung). Jadi yang bisa kita berikan adalah tautan tepat ke flag-nya
+                // plus tombol salin, tinggal ditempel di address bar.
+                const FLAG_ID = 'enable-web-bluetooth-new-permissions-backend';
+
+                function detectBrowser() {
+                    const ua = navigator.userAgent || '';
+                    if (navigator.brave)             return { scheme: null,       name: 'Brave',             ok: false };
+                    if (/Edg\//.test(ua))            return { scheme: 'edge://',  name: 'Edge',              ok: true  };
+                    if (/OPR\//.test(ua))            return { scheme: 'opera://', name: 'Opera',             ok: true  };
+                    if (/SamsungBrowser\//.test(ua)) return { scheme: null,       name: 'Samsung Internet',  ok: false };
+                    if (/Firefox\//.test(ua))        return { scheme: null,       name: 'Firefox',           ok: false };
+                    if (/Chrome\//.test(ua))         return { scheme: 'chrome://',name: 'Chrome',            ok: true  };
+                    if (/Safari\//.test(ua))         return { scheme: null,       name: 'Safari',            ok: false };
+                    return { scheme: null, name: 'Browser ini', ok: false };
+                }
+
+                function renderBlePersist() {
+                    const b = detectBrowser();
+                    const $st = $('#ble-persist-status'), $body = $('#ble-persist-body');
+
+                    if (navigator.bluetooth && navigator.bluetooth.getDevices) {
+                        $st.attr('class', 'badge badge-light-success').text('Sudah aktif');
+                        $body.html('Printer tersambung sendiri tiap membuka halaman Kasir — tidak perlu klik ' +
+                                   '<b>Hubungkan</b> lagi. Tidak ada yang perlu diubah.');
+                        return;
+                    }
+                    if (!navigator.bluetooth || !b.ok) {
+                        $st.attr('class', 'badge badge-light-danger').text('Tidak didukung');
+                        $body.html('<b>' + b.name + '</b> tidak mendukung Web Bluetooth. Gunakan <b>Google Chrome</b> ' +
+                                   'di perangkat kasir, lalu buka halaman ini lagi.');
+                        return;
+                    }
+                    const url = b.scheme + 'flags/#' + FLAG_ID;
+                    $st.attr('class', 'badge badge-light-warning').text('Belum aktif');
+                    $body.html(
+                        'Saat ini printer harus dihubungkan ulang setiap pindah halaman. <b>' + b.name + '</b> masih ' +
+                        'menaruh kemampuan "mengingat perangkat" di balik sebuah flag — nyalakan sekali saja di perangkat kasir:' +
+                        '<div class="bg-dark text-white rounded p-3 my-3" style="font-family:monospace; overflow-x:auto;">' + url + '</div>' +
+                        '<button type="button" class="btn btn-sm btn-primary mb-3" id="btn-copy-flag">' +
+                        '<i class="ki-outline ki-copy fs-4"></i> Salin Tautan</button>' +
+                        '<ol class="mb-0 ps-4">' +
+                        '<li>Salin tautan di atas, tempel di address bar <b>' + b.name + '</b></li>' +
+                        '<li>Ubah pilihannya menjadi <b>Enabled</b></li>' +
+                        '<li>Restart ' + b.name + ', lalu hubungkan printer sekali lagi</li>' +
+                        '</ol>' +
+                        '<div class="text-muted fs-8 mt-3">Tautan ini tidak bisa dibuka lewat tombol: browser melarang ' +
+                        'halaman web membuka alamat <b>' + b.scheme + '</b> demi keamanan, jadi harus ditempel manual.</div>'
+                    );
+                }
+
+                $(document).on('click', '#btn-copy-flag', function () {
+                    const b = detectBrowser();
+                    if (!b.scheme) return;
+                    const url = b.scheme + 'flags/#' + FLAG_ID;
+                    const done = () => Swal.fire({ toast: true, position: 'top-end', icon: 'success',
+                        title: 'Tautan disalin — tempel di address bar', showConfirmButton: false, timer: 3000 });
+                    if (navigator.clipboard && window.isSecureContext) {
+                        navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+                    } else { fallbackCopy(url, done); }
+                });
+
+                function fallbackCopy(text, done) {
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                        document.body.appendChild(ta); ta.select();
+                        document.execCommand('copy'); document.body.removeChild(ta); done();
+                    } catch (e) {
+                        Swal.fire('Salin manual', 'Tidak bisa menyalin otomatis. Ketik manual: ' + text, 'info');
+                    }
                 }
 
                 $('input[name="printer_method"]').on('change', function() {

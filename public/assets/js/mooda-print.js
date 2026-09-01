@@ -239,7 +239,7 @@ window.MoodaPrint = (function () {
     // -------- Web Bluetooth (auto-reconnect tahan-banting) --------
     let bleChar = null, bleDevice = null, bleReconnecting = false;
     let bleWatchdog = null, bleWantConnected = false;
-    let bleKeepAlive = null, blePrinting = false, bleVisBound = false;
+    let bleKeepAlive = null, blePrinting = false, bleVisBound = false, bleReadChar = null;
 
     async function discoverWritable(server) {
         const svcs = await server.getPrimaryServices();
@@ -252,8 +252,25 @@ window.MoodaPrint = (function () {
 
     // Ambil karakteristik tulis: coba service printer standar (0x18F0/0x2AF1), fallback scan.
     async function acquireChar(server) {
-        try { const svc = await server.getPrimaryService(BLE_SERVICE); return await svc.getCharacteristic(BLE_WRITE_CHAR); }
-        catch (e) { return await discoverWritable(server); }
+        let ch;
+        try { const svc = await server.getPrimaryService(BLE_SERVICE); ch = await svc.getCharacteristic(BLE_WRITE_CHAR); }
+        catch (e) { ch = await discoverWritable(server); }
+        bleReadChar = await findReadable(server);   // null = denyut anti-idle dimatikan
+        return ch;
+    }
+
+    // Cari karakteristik yang bisa DIBACA, khusus untuk denyut anti-idle.
+    // Baca GATT murni: tidak ada satu byte pun masuk ke parser perintah printer,
+    // jadi mustahil memakan kertas atau mengubah setelan printer.
+    async function findReadable(server) {
+        try {
+            const svcs = await server.getPrimaryServices();
+            for (const s of svcs) {
+                const chs = await s.getCharacteristics();
+                for (const c of chs) if (c.properties.read) return c;
+            }
+        } catch (e) {}
+        return null;
     }
 
     // Sambungkan GATT dengan beberapa percobaan (printer thermal sering lambat bangun dari mode hemat daya).
@@ -276,7 +293,7 @@ window.MoodaPrint = (function () {
     // Saat printer memutus (mis. hemat daya), sambung ulang otomatis di latar belakang
     // agar tidak perlu klik "Hubungkan" lagi saat mau cetak.
     async function onBleDisconnect() {
-        bleChar = null;
+        bleChar = null; bleReadChar = null;
         if (bleReconnecting || !bleDevice || !bleWantConnected) return;
         bleReconnecting = true;
         try {
@@ -287,18 +304,17 @@ window.MoodaPrint = (function () {
     }
 
     // Denyut anti-idle: printer thermal menjatuhkan link BLE bila lama tak ada lalu lintas.
-    // ESC @ (inisialisasi printer) TIDAK memakan kertas dan tidak mencetak apa pun -- byte
-    // yang sama sudah dipakai sebagai pembuka tiap struk, jadi aman dikirim berkala.
-    // Tujuannya MENCEGAH putus, bukan sekadar menyembuhkan setelah putus seperti watchdog.
+    //
+    // SENGAJA memakai BACA GATT, bukan mengirim perintah cetak. Tidak ada satu byte pun
+    // masuk ke parser perintah printer, sehingga TIDAK MUNGKIN memakan kertas, mencetak
+    // baris kosong, atau mengubah setelan printer -- lalu lintasnya murni di lapisan BLE.
+    // Bila printer tak punya karakteristik yang bisa dibaca, denyut dimatikan total dan
+    // pemulihan diserahkan ke watchdog; lebih baik tak berdenyut daripada berisiko kertas.
     async function bleKeepAliveTick() {
         if (!bleWantConnected || blePrinting || bleReconnecting) return;
         if (document.hidden) return;                       // tab tersembunyi: tak perlu dibangunkan
-        if (!bleChar || !bleDevice || !bleDevice.gatt || !bleDevice.gatt.connected) return;
-        try {
-            const ping = new Uint8Array([ESC, 0x40]);
-            if (bleChar.writeValueWithoutResponse) await bleChar.writeValueWithoutResponse(ping);
-            else await bleChar.writeValue(ping);
-        } catch (e) { bleChar = null; }                    // gagal -> watchdog yang menyambung ulang
+        if (!bleReadChar || !bleDevice || !bleDevice.gatt || !bleDevice.gatt.connected) return;
+        try { await bleReadChar.readValue(); } catch (e) { /* watchdog yang menangani */ }
     }
 
     // Watchdog: cek berkala & sambung ulang otomatis bila printer terputus saat idle,
