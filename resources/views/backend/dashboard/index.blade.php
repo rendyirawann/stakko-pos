@@ -661,3 +661,89 @@
 
     </script>
     @endpush
+
+{{--
+    Ajakan pasang APK — muncul setelah login, di dashboard.
+
+    Alasan keberadaannya: pengguna BROWSER tidak pernah diberi tahu bahwa aplikasinya ada.
+    Popup di halaman login hanya menyala untuk yang SUDAH di dalam APK dengan versi lama
+    (deteksi "MoodaAPK/<code>"), sehingga kasir yang memakai Chrome tak pernah tahu — dan
+    di Chrome, koneksi printer Bluetooth memang rapuh (Web Bluetooth melupakan perangkat
+    antar halaman tanpa flag khusus). Di APK, socket dipegang Android sehingga tetap hidup.
+--}}
+@php
+    $ua = request()->userAgent() ?? '';
+    // Hanya Android: APK tak bisa dipasang di iOS/desktop, jadi jangan diajak sia-sia.
+    // Di dalam APK sendiri UA memuat "MoodaAPK/" -> tidak perlu diajak lagi.
+    // Rute unduhan dijaga middleware 'subscribed'; tenant tanpa akses aktif akan dilempar
+    // ke billing, jadi jangan ditawari sesuatu yang tak bisa ia buka.
+    $showApkAd = auth()->check()
+        && !auth()->user()->isSuperadmin()
+        && str_contains($ua, 'Android')
+        && !str_contains($ua, 'MoodaAPK/')
+        && optional(auth()->user()->tenant)->hasActiveAccess();
+@endphp
+
+@if ($showApkAd)
+    @push('scripts')
+        <script>
+            (function () {
+                var KEY = 'mooda_apk_ad_until';   // tunda sampai kapan (epoch ms)
+                var HARI = 24 * 60 * 60 * 1000;
+
+                function tunda(hari) {
+                    try { localStorage.setItem(KEY, String(Date.now() + hari * HARI)); } catch (e) {}
+                }
+
+                try {
+                    var until = parseInt(localStorage.getItem(KEY) || '0', 10);
+                    if (until && Date.now() < until) return;
+                } catch (e) { /* localStorage diblokir -> tampilkan saja */ }
+
+                document.addEventListener('DOMContentLoaded', function () {
+                    if (!window.Swal) return;
+
+                    // Beri jeda: halaman sempat tampil dulu, dan modal yang lebih mendesak
+                    // (mis. "Shift Belum Ditutup") tidak tertimpa — Swal.fire menggantikan
+                    // modal yang sedang terbuka, bukan mengantre.
+                    setTimeout(function () {
+                        if (Swal.isVisible()) return;
+
+                        Swal.fire({
+                            imageUrl: "{{ asset('assets/media/logos/mooda-logo.png') }}",
+                            imageWidth: 150,
+                            imageAlt: 'Mooda',
+                            title: 'Pakai Aplikasi Mooda Sekarang',
+                            html: '<div class="text-start fs-6 text-gray-700 mt-3">'
+                                + '<div class="d-flex mb-2"><i class="ki-outline ki-printer fs-3 text-primary me-3 mt-1"></i>'
+                                + '<span>Printer Bluetooth <b>tetap tersambung</b> — tak perlu klik "Hubungkan" berulang</span></div>'
+                                + '<div class="d-flex mb-2"><i class="ki-outline ki-rocket fs-3 text-primary me-3 mt-1"></i>'
+                                + '<span>Lebih ringan &amp; cepat dibanding lewat browser</span></div>'
+                                + '<div class="d-flex"><i class="ki-outline ki-screen fs-3 text-primary me-3 mt-1"></i>'
+                                + '<span>Layar penuh, tanpa bilah alamat browser</span></div>'
+                                + '</div>',
+                            confirmButtonText: 'Pasang Sekarang',
+                            showCancelButton: true,
+                            cancelButtonText: 'Nanti',
+                            allowOutsideClick: false,
+                            customClass: {
+                                confirmButton: 'btn btn-primary fw-bold',
+                                cancelButton: 'btn btn-light fw-bold',
+                            },
+                            buttonsStyling: false,
+                        }).then(function (r) {
+                            if (r.isConfirmed) {
+                                // Diarahkan ke halaman Aplikasi (bukan langsung unduh berkas),
+                                // supaya kasir membaca cara pasang & izin "sumber tidak dikenal".
+                                tunda(14);
+                                window.location.href = "{{ route('download-app') }}";
+                            } else {
+                                tunda(3);
+                            }
+                        });
+                    }, 1200);
+                });
+            })();
+        </script>
+    @endpush
+@endif
